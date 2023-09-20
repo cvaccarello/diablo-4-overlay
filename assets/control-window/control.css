@@ -1,0 +1,148 @@
+
+* {
+	box-sizing: border-box;
+}
+
+html {
+	height: 100%;
+}
+
+body {
+	position: relative;
+	font-family: arial, sans-serif;
+	font-size: 20px;
+	margin: 0;
+	min-height: 100%;
+}
+
+button {
+	cursor: pointer;
+}
+
+button, input {
+	font: inherit;
+}
+
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+section {
+	width: 80%;
+	margin: 0 auto 30px;
+}
+
+video {
+	width: 100%;
+}
+
+.btn {
+	padding: 20px 30px;
+	border: 1px solid;
+	user-select: none;
+}
+
+.btn-icon {
+	padding: 5px;
+}
+
+.background {
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	background: transparent url('../images/main.png') 0 0 repeat;
+	display: block;
+	opacity: 0.55;
+	z-index: -1;
+}
+
+.nav-top {
+	display: flex;
+
+	.btn {
+		background: dodgerblue;
+		width: 50%;
+	}
+}
+
+
+
+.check-container {
+	background: linear-gradient(45deg, #ffe9fb, #ebe9ff);
+	margin: 20px 0;
+	padding: 15px 20px;
+	font-size: 0.9em;
+	border: 1px solid #CCCCCC;
+	box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+	display: block;
+}
+
+.check-container span {
+	margin-bottom: 0.3em;
+	display: block;
+}
+
+.check-container input,
+.check-container .label-input-text {
+	margin: 0.3em 0;
+	display: block;
+	width: 100%;
+}
+
+.check-container .label-input-text {
+	height: 30px;
+	padding: 7px;
+	font-size: 0.8em;
+	background: #ffffff;
+	border: 1px solid #BFBFBF;
+	display: flex;
+}
+
+.check-container .label-input-text input {
+	margin: 0;
+	background: transparent;
+	border: 0 none;
+	outline: none;
+	display: flex;
+}
+
+.check-container .label-input-text:first-child {
+	flex-grow: 1;
+	margin-right: 0.3em;
+}
+.check-container .label-input-text:last-child {
+	min-width: 57px;
+	flex-shrink: 100;
+}
+.check-container .label-input-text:last-child input {
+	text-align: right;
+}
+
+
+.check-container .flex-row {
+	display: flex;
+	flex-direction: row;
+}
+
+.check-container .flex-column {
+	display: flex;
+	flex-direction: column;
+}
+
+.check-container .header {
+	align-items: end;
+}
+.check-container .header span {
+	flex-grow: 1;
+}
+.check-container .header button {
+	color: red;
+	background: transparent;
+	border: 0 none;
+	padding: 0.3em;
+	margin-right: -0.6em;
+}
+
+

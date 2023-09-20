@@ -1,0 +1,7 @@
+
+# standard ignore files for my node-based projects
+.idea
+/node_modules
+
+# ignore created data directory
+/data/data.json
