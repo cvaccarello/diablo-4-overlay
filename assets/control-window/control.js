@@ -22,6 +22,10 @@ class Control {
 
 		$(document).on('click', '.a-stop', () => {
 			ipcRenderer.send('stop-scanning');
+
+			this.stream?.getTracks().forEach((track) => {
+				track.stop();
+			});
 		});
 
 		$(document).on('click', '.a-add', () => {
@@ -87,8 +91,8 @@ class Control {
 			}
 		};
 
-		// Preview the source in a video element
-		this.video.srcObject = await navigator.mediaDevices.getUserMedia(constraints);
+		this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+		this.video.srcObject = this.stream;
 		this.video.play();
 	}
 
