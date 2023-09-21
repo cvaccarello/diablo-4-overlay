@@ -1,8 +1,6 @@
 
 const $ = require('jquery');
 const { ipcRenderer } = require('electron');
-const debug = true;
-
 
 String.prototype.replaceAt = function(index, replacement) {
 	return this.substring(0, index) + replacement + this.substring(index + replacement.length);
@@ -143,26 +141,10 @@ class RGBA {
 class Overlay {
 	constructor() {
 		this.matchData = [];
-		this.video = $('<video>')[0];
-		this.canvas = $('canvas.transparent')[0];
-		this.$canvasBox1 = $('<canvas class="box1">');
-		this.$canvasBox2 = $('<canvas class="box2">');
-		this.canvasBox1 = this.$canvasBox1[0];
-		this.canvasBox2 = this.$canvasBox2[0];
-		// this.canvasBox1 = new OffscreenCanvas(0, 0);
-		// this.canvasBox2 = new OffscreenCanvas(0, 0);
-		this.context = this.canvas.getContext('2d');
-		this.contextBox1 = this.canvasBox1.getContext('2d', { willReadFrequently: true });
-		this.contextBox2 = this.canvasBox2.getContext('2d', { willReadFrequently: true });
-
-		if (debug) {
-			$('body').append(this.canvasBox1).append(this.canvasBox2);
-		}
-
+		this.debug = false;
 		this.boxPadding = 6;
 		this.scanRegionTopCrop = 165;
 		this.scanRegionBottomCrop = 130;
-
 		let colorBuffer = 10;
 
 		this.itemLegendaryBorderColor = {
@@ -241,6 +223,19 @@ class Overlay {
 	}
 
 	async initialize() {
+		this.debug = await ipcRenderer.invoke('get-debug-flag');
+
+		this.video = $('<video>')[0];
+		this.canvas = $('canvas.transparent')[0];
+		this.$canvasBox1 = $('<canvas class="box1">');
+		this.$canvasBox2 = $('<canvas class="box2">');
+		this.canvasBox1 = this.debug ? this.$canvasBox1[0] : new OffscreenCanvas(0, 0);
+		this.canvasBox2 = this.debug ? this.$canvasBox2[0] : new OffscreenCanvas(0, 0);
+		this.context = this.canvas.getContext('2d');
+		this.contextBox1 = this.canvasBox1.getContext('2d', { willReadFrequently: true });
+		this.contextBox2 = this.canvasBox2.getContext('2d', { willReadFrequently: true });
+		this.matchData = await ipcRenderer.invoke('get-update-data');
+
 		this.worker = await Tesseract.createWorker({
 			workerPath: '../../node_modules/tesseract.js/dist/worker.min.js',
 			// logger: m => console.log(m),
@@ -249,13 +244,16 @@ class Overlay {
 
 		await this.worker.loadLanguage('eng');
 		await this.worker.initialize('eng');
+
+		await this.setSource(await ipcRenderer.invoke('get-input-source'));
+
+		// add debug boxes to help visually see what the app is processing for the diablo "items"
+		if (this.debug) {
+			$('body').append(this.canvasBox1).append(this.canvasBox2);
+		}
 	}
 
 	activate() {
-		ipcRenderer.on('set-input-source', (event, inputSource) => {
-			this.setSource(inputSource).catch(console.error);
-		});
-
 		ipcRenderer.on('update-data', (event, data) => {
 			this.matchData = data;
 		});
@@ -289,9 +287,7 @@ class Overlay {
 		this.canvas.width = this.width;
 		this.canvas.height = this.height;
 
-		setTimeout(() => {
-			this.render();
-		}, 5000);
+		this.render().catch(() => {});
 	}
 
 	async render() {
@@ -340,23 +336,24 @@ class Overlay {
 		let results1, results2;
 
 		if (boxes[0]) {
-			const img1 = this.canvasBox1.toDataURL('image/png');
-			// const img1 = await this.canvasBox1.convertToBlob({ type: 'image/png' });
+			const img1 = this.debug ? this.canvasBox1.toDataURL('image/png') : await this.canvasBox1.convertToBlob({ type: 'image/png' });
 			const { data } = await this.worker.recognize(img1);
 			results1 = data;
 			console.log(results1);
 		}
 
 		if (boxes[1]) {
-			const img2 = this.canvasBox2.toDataURL('image/png');
-			// const img2 = await this.canvasBox2.convertToBlob({ type: 'image/png' });
+			const img2 = this.debug ? this.canvasBox2.toDataURL('image/png') : await this.canvasBox2.convertToBlob({ type: 'image/png' });
 			const { data } = await this.worker.recognize(img2);
 			results2 = data;
 			console.log(results2);
 		}
 
 		this.context.clearRect(0, 0, this.width, this.height);
-		this.context.drawImage(this.video, 0, 0, this.width, this.height);
+
+		if (this.debug) {
+			this.context.drawImage(this.video, 0, 0, this.width, this.height);
+		}
 
 		if (boxes[0]) {
 			this._checkAndRenderResults(results1, scanRegionBoxes[0], boxes[0]);
@@ -392,8 +389,6 @@ class Overlay {
 			let g = imageData.data[i + 1];
 			let b = imageData.data[i + 2];
 
-			// console.log(i, ((x) + (y * imageData.width)) * 4, x, y, { r, g, b });
-
 			// skip pixels inside predefined boxes
 			if ((box1 && this._pointIsInBox({ x, y }, box1)) || (box2 && this._pointIsInBox({ x, y }, box2))) {
 				continue;
@@ -413,7 +408,6 @@ class Overlay {
 			}
 		}
 
-		console.log(box1, box2);
 		return [ box1, box2 ];
 	}
 
@@ -566,7 +560,7 @@ class Overlay {
 
 				if (percentageToMax >= matchPercentage) {
 					this.context.strokeStyle = 'red';
-					this.context.lineWidth = 5;
+					this.context.lineWidth = 2;
 					this.context.beginPath();
 					this.context.rect(scanRegionBox.x + results.paragraphs[i].bbox.x0, scanRegionBox.y + results.paragraphs[i].bbox.y0, results.paragraphs[i].bbox.x1 - results.paragraphs[i].bbox.x0, results.paragraphs[i].bbox.y1 - results.paragraphs[i].bbox.y0);
 					this.context.stroke();
@@ -574,7 +568,7 @@ class Overlay {
 			}
 		}
 
-		if (debug) {
+		if (this.debug) {
 			this.context.strokeStyle = 'yellow';
 			this.context.lineWidth = 2;
 			this.context.beginPath();
@@ -590,5 +584,5 @@ class Overlay {
 }
 
 let overlay = new Overlay();
-overlay.initialize();
+await overlay.initialize();
 overlay.activate();

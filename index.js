@@ -15,6 +15,7 @@ class ElectronOverlay {
 		this.controlWindow = null;
 		this.overlayWindow = null;
 		this.matchDataFile = path.join(__dirname, 'data/data.json');
+		this.inputSource = null;
 		this.matchData = [];
 
 		this.initialize();
@@ -32,7 +33,7 @@ class ElectronOverlay {
 	}
 
 	activate() {
-		ipcMain.handle('get-input-source', async (event) => {
+		ipcMain.handle('query-input-source', async (event) => {
 			let inputSources = await desktopCapturer.getSources({
 				types: ['window', 'screen']
 			});
@@ -52,21 +53,27 @@ class ElectronOverlay {
 				videoOptionsMenu.popup({ window: BrowserWindow.fromWebContents(event.sender) });
 			});
 
-			this.createOverlayWindow().then(() => {
-				this.overlayWindow.send('set-input-source', inputSource);
-				this.overlayWindow.send('update-data', this.matchData);
-			}).catch(() => {});
+			this.inputSource = inputSource;
+
+			this.createOverlayWindow().catch(() => {});
 
 			return inputSource;
 		});
 
-		ipcMain.on('stop-scanning', async (event) => {
-			this.overlayWindow?.close();
+		ipcMain.handle('get-debug-flag', () => {
+			return debug;
 		});
 
-		ipcMain.on('get-update-data', () => {
-			this.controlWindow?.send('update-data', this.matchData);
-			this.overlayWindow?.send('update-data', this.matchData);
+		ipcMain.handle('get-input-source', async (event) => {
+			return this.inputSource;
+		});
+
+		ipcMain.handle('get-update-data', () => {
+			return this.matchData;
+		});
+
+		ipcMain.on('stop-scanning', async (event) => {
+			this.overlayWindow?.close();
 		});
 
 		ipcMain.on('input-data', (event, data) => {

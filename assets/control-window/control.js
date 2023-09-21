@@ -7,29 +7,13 @@ class Control {
 		this.video = $('video')[0];
 	}
 
-	initialize() {
-		console.log(ipcRenderer);
-		ipcRenderer.send('get-update-data');
+	async initialize() {
+		this._updateData(await ipcRenderer.invoke('get-update-data'));
 	}
 
 	activate() {
 		ipcRenderer.on('update-data', (event, data) => {
-			let $container = $('.check-container');
-			let $parent = $container.parent();
-			let $box = $container.first().clone();
-
-			$parent.empty();
-			$parent.append($box);
-
-			for (let searchBlock of data) {
-				let $box = $container.first().clone();
-
-				for (let [name, value] of Object.entries(searchBlock)) {
-					$box.find(`input[name="${name}"]`).val(value);
-				}
-
-				$parent.append($box);
-			}
+			this._updateData(data);
 		});
 
 		$(document).on('click', '.a-start', () => {
@@ -88,7 +72,7 @@ class Control {
 
 	// Get the available video sources
 	async getVideoSource() {
-		await this.setSource(await ipcRenderer.invoke('get-input-source'));
+		await this.setSource(await ipcRenderer.invoke('query-input-source'));
 	}
 
 	// Change the videoSource window to record
@@ -128,10 +112,27 @@ class Control {
 
 		ipcRenderer.send('input-data', data);
 	}
+
+	_updateData(data) {
+		let $container = $('.check-container');
+		let $parent = $container.parent();
+		let $box = $container.first().clone();
+
+		$parent.empty();
+		$parent.append($box);
+
+		for (let searchBlock of data) {
+			let $box = $container.first().clone();
+
+			for (let [name, value] of Object.entries(searchBlock)) {
+				$box.find(`input[name="${name}"]`).val(value);
+			}
+
+			$parent.append($box);
+		}
+	}
 }
 
-$(() => {
-	let control = new Control();
-	control.initialize();
-	control.activate();
-});
+let control = new Control();
+await control.initialize();
+control.activate();
