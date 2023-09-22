@@ -229,21 +229,12 @@ class Overlay {
 		this.canvas = $('canvas.transparent')[0];
 		this.$canvasBox1 = $('<canvas class="box1">');
 		this.$canvasBox2 = $('<canvas class="box2">');
-		this.canvasBox1 = this.debug ? this.$canvasBox1[0] : new OffscreenCanvas(0, 0);
-		this.canvasBox2 = this.debug ? this.$canvasBox2[0] : new OffscreenCanvas(0, 0);
+		this.canvasBox1 = this.$canvasBox1[0];
+		this.canvasBox2 = this.$canvasBox2[0];
 		this.context = this.canvas.getContext('2d');
 		this.contextBox1 = this.canvasBox1.getContext('2d', { willReadFrequently: true });
 		this.contextBox2 = this.canvasBox2.getContext('2d', { willReadFrequently: true });
 		this.matchData = await ipcRenderer.invoke('get-update-data');
-
-		this.worker = await Tesseract.createWorker({
-			workerPath: '../../node_modules/tesseract.js/dist/worker.min.js',
-			// logger: m => console.log(m),
-			workerBlobURL: false
-		});
-
-		await this.worker.loadLanguage('eng');
-		await this.worker.initialize('eng');
 
 		await this.setSource(await ipcRenderer.invoke('get-input-source'));
 
@@ -287,7 +278,7 @@ class Overlay {
 		this.canvas.width = this.width;
 		this.canvas.height = this.height;
 
-		this.render().catch(() => {});
+		this.render().catch(console.error);
 	}
 
 	async render() {
@@ -333,21 +324,19 @@ class Overlay {
 			this._cleanBox(this.canvasBox2, this.contextBox2);
 		}
 
-		let results1, results2;
+		let promises = [];
 
 		if (boxes[0]) {
-			const img1 = this.debug ? this.canvasBox1.toDataURL('image/png') : await this.canvasBox1.convertToBlob({ type: 'image/png' });
-			const { data } = await this.worker.recognize(img1);
-			results1 = data;
-			console.log(results1);
+			const img1 = this.canvasBox1.toDataURL('image/png');
+			promises.push(ipcRenderer.invoke('ocr-process', img1));
 		}
 
 		if (boxes[1]) {
-			const img2 = this.debug ? this.canvasBox2.toDataURL('image/png') : await this.canvasBox2.convertToBlob({ type: 'image/png' });
-			const { data } = await this.worker.recognize(img2);
-			results2 = data;
-			console.log(results2);
+			const img2 = this.canvasBox2.toDataURL('image/png');
+			promises.push(await ipcRenderer.invoke('ocr-process', img2));
 		}
+
+		const [ results1, results2 ] = await Promise.all(promises);
 
 		this.context.clearRect(0, 0, this.width, this.height);
 

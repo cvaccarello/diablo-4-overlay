@@ -10,6 +10,9 @@ if (process.env.INIT_CWD) {
 
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = true;
 
+const { createWorker, createScheduler } = require('tesseract.js');
+
+
 class ElectronOverlay {
 	constructor() {
 		this.controlWindow = null;
@@ -18,18 +21,19 @@ class ElectronOverlay {
 		this.inputSource = null;
 		this.matchData = [];
 
-		this.initialize();
+		this.initialize().catch(console.error);
 		this.activate();
 	}
 
-	initialize() {
+	async initialize() {
 		if (!fs.existsSync(this.matchDataFile)) {
 			fs.writeFileSync(this.matchDataFile, JSON.stringify(this.matchData, null, '\t'));
 		}
 
 		this.matchData = JSON.parse(fs.readFileSync(this.matchDataFile));
 
-		this.createControlWindow().catch(() => {});
+		await this.createScheduler();
+		this.createControlWindow().catch(console.error);
 	}
 
 	activate() {
@@ -55,7 +59,7 @@ class ElectronOverlay {
 
 			this.inputSource = inputSource;
 
-			this.createOverlayWindow().catch(() => {});
+			this.createOverlayWindow().catch(console.error);
 
 			return inputSource;
 		});
@@ -72,6 +76,11 @@ class ElectronOverlay {
 			return this.matchData;
 		});
 
+		ipcMain.handle('ocr-process', async (event, image) => {
+			const { data } = await this.scheduler.addJob('recognize', image);
+			return data;
+		});
+
 		ipcMain.on('stop-scanning', async (event) => {
 			this.overlayWindow?.close();
 		});
@@ -81,6 +90,27 @@ class ElectronOverlay {
 			fs.writeFileSync(this.matchDataFile, JSON.stringify(this.matchData, null, '\t'))
 			this.overlayWindow?.send('update-data', this.matchData);
 		});
+	}
+
+	async createScheduler() {
+		this.scheduler = createScheduler();
+
+		const worker1 = await createWorker();
+		await worker1.loadLanguage('eng');
+		await worker1.initialize('eng');
+		// await worker1.setParameters({
+		// 	tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,-+©*[]%:\n',
+		// });
+
+		const worker2 = await createWorker();
+		await worker2.loadLanguage('eng');
+		await worker2.initialize('eng');
+		// await worker2.setParameters({
+		// 	tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,-+©*[]%:\n',
+		// });
+
+		this.scheduler.addWorker(worker1);
+		this.scheduler.addWorker(worker2);
 	}
 
 	async createControlWindow() {
