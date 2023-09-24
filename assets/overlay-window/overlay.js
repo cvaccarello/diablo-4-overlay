@@ -220,6 +220,51 @@ class Overlay {
 				max: 250
 			}
 		};
+
+		this.itemLegendaryTextColor = {
+			r: {
+				min: 220,
+				max: 255,
+			},
+			g: {
+				min: 110,
+				max: 150,
+			},
+			b: {
+				min: 0,
+				max: 20
+			}
+		};
+
+		this.itemRequiredTextColor = {
+			r: {
+				min: 190,
+				max: 255,
+			},
+			g: {
+				min: 190,
+				max: 255,
+			},
+			b: {
+				min: 190,
+				max: 255
+			}
+		};
+
+		this.itemEquippedBoxColor = {
+			r: {
+				min: 130,
+				max: 163,
+			},
+			g: {
+				min: 130,
+				max: 163,
+			},
+			b: {
+				min: 130,
+				max: 163
+			}
+		};
 	}
 
 	async initialize() {
@@ -288,38 +333,35 @@ class Overlay {
 		let boxes = this._scanForBoxes(imageData);
 		let scanRegionBoxes = [];
 
+		// try to ignore equipped box to cut processing times in half
+		if (boxes[0] && this._isEquippedItem(boxes[0], imageData)) {
+			boxes.splice(0, 1);
+		} else if (boxes[1] && this._isEquippedItem(boxes[1], imageData)) {
+			boxes.splice(1, 1);
+		}
+
 		if (boxes[0]) {
-			let modifiedBox = {
-				x: boxes[0].x,
-				y: boxes[0].y + this.scanRegionTopCrop,
-				width: boxes[0].width,
-				height: boxes[0].height - this.scanRegionTopCrop - this.scanRegionBottomCrop,
-			};
+			let modifiedBox = this._getModifiedOptimizedBox(boxes[0]);
 
 			scanRegionBoxes.push(modifiedBox);
 
 			this.$canvasBox1.css('translate', `${modifiedBox.x}px ${modifiedBox.y}px`);
 			this.canvasBox1.width = modifiedBox.width;
 			this.canvasBox1.height = modifiedBox.height;
-			this.contextBox1.clearRect(0, 0, this.canvasBox1.width, this.canvasBox1.height);
+			// this.contextBox1.clearRect(0, 0, this.canvasBox1.width, this.canvasBox1.height);
 			this.contextBox1.drawImage(this.video, modifiedBox.x, modifiedBox.y, this.canvasBox1.width, this.canvasBox1.height, 0, 0, this.canvasBox1.width, this.canvasBox1.height);
 			this._cleanBox(this.canvasBox1, this.contextBox1);
 		}
 
 		if (boxes[1]) {
-			let modifiedBox = {
-				x: boxes[1].x,
-				y: boxes[1].y + this.scanRegionTopCrop,
-				width: boxes[1].width,
-				height: boxes[1].height - this.scanRegionTopCrop - this.scanRegionBottomCrop,
-			};
+			let modifiedBox = this._getModifiedOptimizedBox(boxes[1]);
 
 			scanRegionBoxes.push(modifiedBox);
 
 			this.$canvasBox2.css('translate', `${modifiedBox.x}px ${modifiedBox.y}px`);
 			this.canvasBox2.width = modifiedBox.width;
 			this.canvasBox2.height = modifiedBox.height;
-			this.contextBox2.clearRect(0, 0, this.canvasBox2.width, this.canvasBox2.height);
+			// this.contextBox2.clearRect(0, 0, this.canvasBox2.width, this.canvasBox2.height);
 			this.contextBox2.drawImage(this.video, modifiedBox.x, modifiedBox.y, this.canvasBox2.width, this.canvasBox2.height, 0, 0, this.canvasBox2.width, this.canvasBox2.height);
 			this._cleanBox(this.canvasBox2, this.contextBox2);
 		}
@@ -327,11 +369,13 @@ class Overlay {
 		let promises = [];
 
 		if (boxes[0]) {
+			// process OCR on the node.js backend for speed purposes
 			const img1 = this.canvasBox1.toDataURL('image/png');
 			promises.push(ipcRenderer.invoke('ocr-process', img1));
 		}
 
 		if (boxes[1]) {
+			// process OCR on the node.js backend for speed purposes
 			const img2 = this.canvasBox2.toDataURL('image/png');
 			promises.push(await ipcRenderer.invoke('ocr-process', img2));
 		}
@@ -495,6 +539,52 @@ class Overlay {
 		box.height -= (this.boxPadding * 2);
 
 		return box;
+	}
+
+	_getModifiedOptimizedBox(box) {
+		let modifiedBox = {
+			x: box.x,
+			y: box.y + this.scanRegionTopCrop,
+			width: box.width,
+			height: box.height - this.scanRegionTopCrop - this.scanRegionBottomCrop,
+		};
+
+		// try to shrink box further by checking for the orange (legendary) or white (level required) text color, which appear at the bottom of item boxes
+		// start half-way down the box, b/c we know what we're looking for is towards the bottom, and we want to the top-most location
+		let initialY = Math.round(modifiedBox.height * 0.4);
+		let croppedImageData = this.offScreenContext.getImageData(modifiedBox.x, modifiedBox.y + initialY, modifiedBox.width, modifiedBox.height - initialY);
+
+		// jump every X pixels, we shouldn't need extreme precision here, just any general idea of where the crop should be
+		for (let i=0; i<croppedImageData.data.length; i+=(4 * 5)) {
+			let r = croppedImageData.data[i];
+			let g = croppedImageData.data[i + 1];
+			let b = croppedImageData.data[i + 2];
+
+			if (this._colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || this._colorIsInRange({ r, g, b }, this.itemRequiredTextColor)) {
+				let y = Math.floor((i / 4) / croppedImageData.width);
+				modifiedBox.height -= (modifiedBox.height - (initialY + y - 8));
+				break;
+			}
+		}
+
+		return modifiedBox;
+	}
+
+	_isEquippedItem(box, imageData) {
+		// start X% over on the X axis and look upwards, at most 100 pixels, for the "EQUIPPED" box
+		let initialY = ((box.x + Math.round(box.width * 0.25)) + (box.y * imageData.width)) * 4;
+		for (let i=initialY; i>=initialY - (imageData.width * 4 * 100) && i >= 0; i-=(imageData.width * 4 * 2)) {
+			let r = imageData.data[i];
+			let g = imageData.data[i + 1];
+			let b = imageData.data[i + 2];
+
+			// once the white equipped box is detected we can stop
+			if (this._colorIsInRange({ r, g, b }, this.itemEquippedBoxColor)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	_cleanBox(canvas, context) {
