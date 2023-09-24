@@ -39,14 +39,28 @@ class ElectronOverlay {
 	activate() {
 		ipcMain.handle('query-input-source', async (event) => {
 			let inputSources = await desktopCapturer.getSources({
-				types: ['window', 'screen']
+				types: ['window', 'screen'],
+				fetchWindowIcons: true,
 			});
+
+			// in production, we can clean up the results a bit with some assumptions on what they're looking for (video game title)
+			if (!debug) {
+				inputSources = inputSources.filter((source) => {
+					// keep all "screens" and anything with the word "diablo" in it
+					return source.id.search('screen') >= 0 || source.name.match(/diablo/gi);
+				});
+			}
 
 			let inputSource = await new Promise((resolve) => {
 				const videoOptionsMenu = Menu.buildFromTemplate(
-					inputSources.map(source => {
+					inputSources.map((source) => {
 						return new MenuItem({
 							label: source.name,
+							icon: source.appIcon?.resize({
+								width: 20
+							}) || source.thumbnail?.resize({
+								width: 20
+							}),
 							click: () => {
 								resolve(source);
 							}
@@ -54,11 +68,19 @@ class ElectronOverlay {
 					})
 				);
 
-				videoOptionsMenu.popup({ window: BrowserWindow.fromWebContents(event.sender) });
+				videoOptionsMenu.popup({
+					window: BrowserWindow.fromWebContents(event.sender),
+					callback: () => {
+						resolve();
+					},
+				});
 			});
 
-			this.inputSource = inputSource;
+			if (!inputSource) {
+				return;
+			}
 
+			this.inputSource = inputSource;
 			this.createOverlayWindow().catch(console.error);
 
 			return inputSource;

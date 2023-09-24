@@ -81,6 +81,10 @@ class Control {
 
 	// Change the videoSource window to record
 	async setSource(source) {
+		if (!source) {
+			return;
+		}
+
 		const constraints = {
 			audio: false,
 			video: {
