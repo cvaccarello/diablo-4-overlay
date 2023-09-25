@@ -115,21 +115,23 @@ class ElectronOverlay {
 	}
 
 	async createScheduler() {
+		let tesseractSettings = {
+			// NOTE: technically parenthesis can happen in stats when something like "(Barbarian Only)" appears, but it's easier to blacklist it all together for better accuracy with numbered stats
+			tessedit_char_blacklist: ';{}/\\_=!`‘~<>|()',
+			// tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,-+©*[]()%:\n',
+		};
+
 		this.scheduler = createScheduler();
 
 		const worker1 = await createWorker();
 		await worker1.loadLanguage('eng');
 		await worker1.initialize('eng');
-		// await worker1.setParameters({
-		// 	tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,-+©*[]%:\n',
-		// });
+		await worker1.setParameters(tesseractSettings);
 
 		const worker2 = await createWorker();
 		await worker2.loadLanguage('eng');
 		await worker2.initialize('eng');
-		// await worker2.setParameters({
-		// 	tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,-+©*[]%:\n',
-		// });
+		await worker2.setParameters(tesseractSettings);
 
 		this.scheduler.addWorker(worker1);
 		this.scheduler.addWorker(worker2);

@@ -144,7 +144,7 @@ class Overlay {
 		this.debug = false;
 		this.boxPadding = 6;
 		this.scanRegionTopCrop = 165;
-		this.scanRegionBottomCrop = 130;
+		this.scanRegionBottomCrop = 100;
 		let colorBuffer = 10;
 
 		this.itemLegendaryBorderColor = {
@@ -433,6 +433,15 @@ class Overlay {
 				} else if (!box2) {
 					box2 = this._getBox(imageData, { x, y });
 				}
+
+				// ignore colliding boxes, replacing the first box with the second box if it's bigger
+				if (box1 && box2 && this._boxIsCollidingBox(box1, box2)) {
+					if (box2.width > box1.width) {
+						box1 = box2;
+					}
+
+					box2 = null;
+				}
 			}
 
 			// we can stop once we've found the maximum number of possible boxes OR we're more than half-way down the screen
@@ -454,7 +463,15 @@ class Overlay {
 	}
 
 	_pointIsInBox(point, box) {
-		return point.x >= box.x - this.boxPadding && point.x <= box.x - this.boxPadding + box.width + (this.boxPadding * 2) && point.y >= box.y - this.boxPadding && point.y <= box.y - this.boxPadding + box.height + (this.boxPadding * 2);
+		let extraPadding = (this.boxPadding * 1.5);
+		return point.x >= box.x - extraPadding && point.x <= box.x - extraPadding + box.width + (extraPadding * 2) && point.y >= box.y - extraPadding && point.y <= box.y - extraPadding + box.height + (extraPadding * 2);
+	}
+
+	_boxIsCollidingBox(box1, box2) {
+		return box1.x < box2.x + box2.width &&
+			box1.x + box1.width > box2.x &&
+			box1.y < box2.y + box2.height &&
+			box1.y + box1.height > box2.y;
 	}
 
 	/**
@@ -493,10 +510,22 @@ class Overlay {
 		// scan to the right, starting X pixels over to jump start the process of box identification
 		// jump every other pixel (i.e., i+8), as we don't need super precision and would prefer speed
 		let initialX = ((point.x + startingWidth) + (point.y * imageData.width)) * 4;
+		let incorrectPixelColors = 0;
+
 		for (let i=initialX; i<=initialX + (500 * 4); i+=8) {
 			let r = imageData.data[i];
 			let g = imageData.data[i + 1];
 			let b = imageData.data[i + 2];
+
+			if (!this._colorIsInRange({ r, g, b }, this.itemLegendaryBorderColor) && !this._colorIsInRange({ r, g, b }, this.itemRareBorderColor)) {
+				incorrectPixelColors++;
+			}
+
+			// trying to weed out false positive boxes by trying to make sure most pixels are the proper color
+			// TODO: need to adjust this to ignore top-right corner where items often stick up and overlap the border
+			if (incorrectPixelColors > 100) {
+				return null;
+			}
 
 			// once the black border is detected we can stop
 			if (this._colorIsInRange({ r, g, b }, this.itemEndBorderColor)) {
@@ -507,7 +536,7 @@ class Overlay {
 		}
 
 		// any box with too little or great of a dimensions will be thrown out / ignored
-		if (box.width <= 0 || box.width >= 800) {
+		if (box.width <= 300 || box.width >= 500) {
 			return null;
 		}
 
@@ -549,20 +578,39 @@ class Overlay {
 			height: box.height - this.scanRegionTopCrop - this.scanRegionBottomCrop,
 		};
 
-		// try to shrink box further by checking for the orange (legendary) or white (level required) text color, which appear at the bottom of item boxes
-		// start half-way down the box, b/c we know what we're looking for is towards the bottom, and we want to the top-most location
-		let initialY = Math.round(modifiedBox.height * 0.4);
-		let croppedImageData = this.offScreenContext.getImageData(modifiedBox.x, modifiedBox.y + initialY, modifiedBox.width, modifiedBox.height - initialY);
+		// try to shrink box further by checking for white "damage" or "armor" text color, which appear at the top of item boxes
+		// start half-way down the box, b/c we know what we're looking for is towards the top, and we want to get the bottom-most location
+		let initialTopY = Math.round(modifiedBox.height * 0.4);
+		let croppedTopImageData = this.offScreenContext.getImageData(modifiedBox.x, modifiedBox.y, modifiedBox.width, modifiedBox.height - initialTopY);
 
 		// jump every X pixels, we shouldn't need extreme precision here, just any general idea of where the crop should be
-		for (let i=0; i<croppedImageData.data.length; i+=(4 * 5)) {
-			let r = croppedImageData.data[i];
-			let g = croppedImageData.data[i + 1];
-			let b = croppedImageData.data[i + 2];
+		for (let i=croppedTopImageData.data.length; i>0; i-=(4 * 5)) {
+			let r = croppedTopImageData.data[i];
+			let g = croppedTopImageData.data[i + 1];
+			let b = croppedTopImageData.data[i + 2];
 
 			if (this._colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || this._colorIsInRange({ r, g, b }, this.itemRequiredTextColor)) {
-				let y = Math.floor((i / 4) / croppedImageData.width);
-				modifiedBox.height -= (modifiedBox.height - (initialY + y - 8));
+				let y = Math.floor((i / 4) / croppedTopImageData.width);
+				modifiedBox.y += (y + 8);
+				modifiedBox.height -= (y + 8);
+				break;
+			}
+		}
+
+		// try to shrink box further by checking for the orange (legendary) or white (level required) text color, which appear at the bottom of item boxes
+		// start half-way down the box, b/c we know what we're looking for is towards the bottom, and we want to get the top-most location
+		let initialBottomY = Math.round(modifiedBox.height * 0.4);
+		let croppedBottomImageData = this.offScreenContext.getImageData(modifiedBox.x, modifiedBox.y + initialBottomY, modifiedBox.width, modifiedBox.height - initialBottomY);
+
+		// jump every X pixels, we shouldn't need extreme precision here, just any general idea of where the crop should be
+		for (let i=0; i<croppedBottomImageData.data.length; i+=(4 * 5)) {
+			let r = croppedBottomImageData.data[i];
+			let g = croppedBottomImageData.data[i + 1];
+			let b = croppedBottomImageData.data[i + 2];
+
+			if (this._colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || this._colorIsInRange({ r, g, b }, this.itemRequiredTextColor)) {
+				let y = Math.floor((i / 4) / croppedBottomImageData.width);
+				modifiedBox.height -= (modifiedBox.height - (initialBottomY + y - 8));
 				break;
 			}
 		}
@@ -611,10 +659,35 @@ class Overlay {
 	}
 
 	_checkAndRenderResults(results, scanRegionBox, outerBox) {
-		// clean up results first
-		for (let i=0; i<results.paragraphs.length; i++) {
+		// TODO: construct our own paragraphs as tesseract OCR is struggling a bit (this approach works really well however we lose the extra OCR details which help with the accuracy)
+		// using a positive lookahead split regex so that only the new line is ultimately removed when splitting
+		let paragraphs = results.text
+			.split(/\n(?=[©@%+o0£]?\s)|\n(?=[O0])/i)
+			.map((paragraph) => {
+				return {
+					text: paragraph.replace('\n', ' ').trim(),
+					bbox: { x0: 10000, y0: 10000, x1: 0, y1: 0 },
+					lines: []
+				};
+			});
+
+		// figure out which OCR line goes with which paragraph
+		for (let line of results.lines) {
+			let paragraph = paragraphs.find((p) => {
+				return p.text.indexOf(line.text.replace('\n', ' ').trim()) >= 0;
+			});
+
+			paragraph.bbox.x0 = Math.min(paragraph.bbox.x0, line.bbox.x0);
+			paragraph.bbox.y0 = Math.min(paragraph.bbox.y0, line.bbox.y0);
+			paragraph.bbox.x1 = Math.max(paragraph.bbox.x1, line.bbox.x1);
+			paragraph.bbox.y1 = Math.max(paragraph.bbox.y1, line.bbox.y1);
+			paragraph.lines.push(line);
+		}
+
+		// clean up the OCR results
+		for (let paragraph of paragraphs) {
 			// start by combining lines into 1 line and removing the single character of junk that ultimately is just a bullet character
-			let text = results.paragraphs[i].text.replace(/\n/gi, ' ').replace(/^.+?\s/gi, '');
+			let text = paragraph.text.replace(/\n/gi, ' ').replace(/^.+?\s/gi, '');
 			let matchString = this.matchData.map((data) => data.name).join('|');
 			let textRegex = new RegExp(`.*?(\\d+\.?\\d+?).*?\\s.*?(${matchString}).*?\\[?(\\d+\.?\\d?)\\s?-\\s?(\\d+\.?\\d?)]?(%?)`, 'i');
 			let preMatch = text.match(/([\[|{(1l!\\/:;]\d+\.\d\s?-\s?\d+\.\d[\]|)}1l!\\/:;])%?/i);
@@ -629,9 +702,9 @@ class Overlay {
 
 			let [ all, value, match, min, max, percentage ] = text.match(textRegex) || [];
 			console.log(text);
-			console.log(value, match, min, max, percentage);
 
 			if (match) {
+				console.log('---', value, match, min, max, percentage);
 				let percentageToMax = 100 * (value - min) / (max - min);
 				let matchPercentage = this.matchData.find((item) => {
 					return item.name.toLowerCase() === match.toLowerCase();
@@ -641,7 +714,12 @@ class Overlay {
 					this.context.strokeStyle = 'red';
 					this.context.lineWidth = 2;
 					this.context.beginPath();
-					this.context.rect(scanRegionBox.x + results.paragraphs[i].bbox.x0, scanRegionBox.y + results.paragraphs[i].bbox.y0, results.paragraphs[i].bbox.x1 - results.paragraphs[i].bbox.x0, results.paragraphs[i].bbox.y1 - results.paragraphs[i].bbox.y0);
+					this.context.rect(
+						scanRegionBox.x + paragraph.bbox.x0 - 5,
+						scanRegionBox.y + paragraph.bbox.y0 - 5,
+						paragraph.bbox.x1 - paragraph.bbox.x0 + 5 + 2,
+						paragraph.bbox.y1 - paragraph.bbox.y0 + 5 + 2
+					);
 					this.context.stroke();
 				}
 			}
