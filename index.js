@@ -115,9 +115,16 @@ class ElectronOverlay {
 	}
 
 	async createScheduler() {
+		// https://github.com/bradparks/tesseract.js___javascript_based_ocr/blob/master/docs/tesseract_parameters.md
 		let tesseractSettings = {
 			// NOTE: technically parenthesis can happen in stats when something like "(Barbarian Only)" appears, but it's easier to blacklist it all together for better accuracy with numbered stats
 			tessedit_char_blacklist: ';{}/\\_=!`‘~<>|()',
+			// max_permuter_attempts: 1,
+			// permute_only_top: 1,
+			// segsearch_max_futile_classifications: 1,
+			// tessedit_dump_choices: 1,
+			// tessedit_single_match: 1,
+			// tessedit_truncate_wordchoice_log: 1,
 			// tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,-+©*[]()%:\n',
 		};
 

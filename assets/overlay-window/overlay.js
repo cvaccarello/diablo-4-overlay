@@ -143,7 +143,7 @@ class Overlay {
 		this.matchData = [];
 		this.debug = false;
 		this.boxPadding = 6;
-		this.scanRegionTopCrop = 165;
+		this.scanRegionTopCrop = 160;
 		this.scanRegionBottomCrop = 100;
 		let colorBuffer = 10;
 
@@ -453,6 +453,14 @@ class Overlay {
 		return [ box1, box2 ];
 	}
 
+	_isPixelColored(color) {
+		return Math.abs(color.r - color.b) > 100 || Math.abs(color.r - color.g) > 100 || Math.abs(color.g - color.b) > 100;
+	}
+
+	_isPixelBlack(color) {
+		return color.r <= 1 && color.g <= 1 && color.b <= 1;
+	}
+
 	_colorIsInRange(color, range) {
 		return color.r >= range.r.min && color.r <= range.r.max && color.g >= range.g.min && color.g <= range.g.max && color.b >= range.b.min && color.b <= range.b.max;
 	}
@@ -608,7 +616,7 @@ class Overlay {
 			let g = croppedBottomImageData.data[i + 1];
 			let b = croppedBottomImageData.data[i + 2];
 
-			if (this._colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || this._colorIsInRange({ r, g, b }, this.itemRequiredTextColor)) {
+			if (this._colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || this._colorIsInRange({ r, g, b }, this.itemRequiredTextColor) || this._isPixelColored({ r, g, b }) || this._isPixelBlack({ r, g, b })) {
 				let y = Math.floor((i / 4) / croppedBottomImageData.width);
 				modifiedBox.height -= (modifiedBox.height - (initialBottomY + y - 8));
 				break;
@@ -662,7 +670,11 @@ class Overlay {
 		// TODO: construct our own paragraphs as tesseract OCR is struggling a bit (this approach works really well however we lose the extra OCR details which help with the accuracy)
 		// using a positive lookahead split regex so that only the new line is ultimately removed when splitting
 		let paragraphs = results.text
+			// remove extra new lines, easier to assume everything is on 1 new line rather than multiple
+			.replace(/\n{2,}/g, '\n')
+			// find new lines where bullet points exist (but don't remove character associated with bullet point yet)
 			.split(/\n(?=[©@%+o0£]?\s)|\n(?=[O0])/i)
+			// map to a nice object with some placeholders that get filled out later
 			.map((paragraph) => {
 				return {
 					text: paragraph.replace('\n', ' ').trim(),
