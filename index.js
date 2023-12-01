@@ -114,7 +114,9 @@ class ElectronOverlay {
 		});
 	}
 
-	async createScheduler() {
+	createScheduler() {
+		let promiseWorkers = [];
+
 		// https://github.com/bradparks/tesseract.js___javascript_based_ocr/blob/master/docs/tesseract_parameters.md
 		let tesseractSettings = {
 			// NOTE: technically parenthesis can happen in stats when something like "(Barbarian Only)" appears, but it's easier to blacklist it all together for better accuracy with numbered stats
@@ -130,18 +132,19 @@ class ElectronOverlay {
 
 		this.scheduler = createScheduler();
 
-		const worker1 = await createWorker();
-		await worker1.loadLanguage('eng');
-		await worker1.initialize('eng');
-		await worker1.setParameters(tesseractSettings);
+		// create 4 workers b/c I'm going to try and grab 1 item box and split the 4 stats boxes up manually
+		for (let i=0; i<4; i++) {
+			promiseWorkers.push(createWorker().then(async (worker) => {
+				// NOTE: These have to happen one after another
+				await worker.loadLanguage('eng');
+				await worker.initialize('eng');
+				await worker.setParameters(tesseractSettings);
 
-		const worker2 = await createWorker();
-		await worker2.loadLanguage('eng');
-		await worker2.initialize('eng');
-		await worker2.setParameters(tesseractSettings);
+				this.scheduler.addWorker(worker);
+			}));
+		}
 
-		this.scheduler.addWorker(worker1);
-		this.scheduler.addWorker(worker2);
+		return Promise.all(promiseWorkers);
 	}
 
 	async createControlWindow() {
