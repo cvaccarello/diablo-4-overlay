@@ -161,6 +161,7 @@ class Overlay {
 		this.contextBox1 = this.canvasBox1.getContext('2d', { willReadFrequently: true });
 		this.contextBox2 = this.canvasBox2.getContext('2d', { willReadFrequently: true });
 		this.matchData = await ipcRenderer.invoke('get-update-data');
+		this.renderTimer = Date.now();
 
 		await this.setSource(await ipcRenderer.invoke('get-input-source'));
 
@@ -208,6 +209,14 @@ class Overlay {
 	}
 
 	async render() {
+		const fps = 1000 / (Date.now() - this.renderTimer);
+		this.renderTimer = Date.now();
+
+		// with a slight timeout on the render requestAnimationFrame, we're able to more easily step through and debug what's happening visually for problem solving purposes
+		if (this.debug) {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+
 		console.time();
 		this.offScreenContext.drawImage(this.video, 0, 0, this.width, this.height);
 		const imageData = this.offScreenContext.getImageData(0, 0, this.width, this.height);
@@ -283,6 +292,10 @@ class Overlay {
 			this._checkAndRenderResults(results2, scanRegionBoxes[1], boxes[1]);
 		}
 
+		this.context.font = 'bold 12px serif';
+		this.context.fillStyle = 'red';
+		this.context.fillText('FPS:     ' + fps.toFixed(2).toString(), 5, 12);
+		this.context.fillText('Items:  ' + boxes.length.toString(), 5, 24);
 
 		console.timeEnd();
 
