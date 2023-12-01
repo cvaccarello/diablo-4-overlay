@@ -7,21 +7,9 @@ canvas {
 	position: absolute;
 	top: 0;
 	left: 0;
-
-	&.transparent {
-	}
-
-	&.box1,
-	&.box2 {
-		opacity: 0.5;
-	}
-
-	&.box1 {
-
-	}
-
-	&.box2 {
-
-	}
 }
 
+canvas.box1,
+canvas.box2 {
+	opacity: 0.5;
+}
