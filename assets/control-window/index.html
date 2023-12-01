@@ -23,22 +23,22 @@
 		<div class="container">
 			<form class="check-container">
 				<div class="header flex-row">
-					<span>Search Text</span>
+					<span class="label-text">Search Text</span>
 					<button class="btn btn-icon btn-delete a-delete" type="button"><i class="icon-trash"></i>️</button>
 				</div>
 
 				<div class="flex-row">
-					<label class="label-input-text">
-						<input class="input-text" type="text" name="name" />
+					<label class="label-input">
+						<input class="label-input-inner input" type="text" name="name" />
 					</label>
-					<label class="label-input-text">
-						<input class="input-text input-percentage" type="number" name="percent" min="0" max="100" />
-						<span>%</span>
+					<label class="label-input label-input-with-percentage">
+						<input class="label-input-inner input input-percentage" type="number" name="percent" min="0" max="100" />
+						<span class="label-input-inner">%</span>
 					</label>
 				</div>
 
 				<label>
-					<input class="input-range" type="range" name="percentage" min="0" max="100" />
+					<input class="input input-range" type="range" name="percentage" min="0" max="100" />
 				</label>
 			</form>
 		</div>

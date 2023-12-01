@@ -58,6 +58,7 @@ video {
 	z-index: -1;
 }
 
+/* NOTE:  While I really like that modern CSS can nest, my IDE currently hates it so I'm avoiding it going forward until IDE technology catches up */
 .nav-top {
 	display: flex;
 
@@ -79,28 +80,38 @@ video {
 	display: block;
 }
 
-.check-container span {
+.check-container .label-text {
 	margin-bottom: 0.3em;
 	display: block;
 }
 
-.check-container input,
-.check-container .label-input-text {
+.check-container .input,
+.check-container .label-input {
 	margin: 0.3em 0;
 	display: block;
 	width: 100%;
 }
 
-.check-container .label-input-text {
+.check-container .label-input {
 	height: 30px;
-	padding: 7px;
 	font-size: 0.8em;
 	background: #ffffff;
 	border: 1px solid #BFBFBF;
 	display: flex;
 }
 
-.check-container .label-input-text input {
+.check-container .label-input .label-input-inner {
+	padding: 7px;
+	line-height: 1;
+}
+.check-container .label-input.label-input-with-percentage .label-input-inner:first-child {
+	padding-right: 0;
+}
+.check-container .label-input.label-input-with-percentage .label-input-inner:last-child {
+	padding-left: 0;
+}
+
+.check-container .label-input .input {
 	margin: 0;
 	background: transparent;
 	border: 0 none;
@@ -108,15 +119,15 @@ video {
 	display: flex;
 }
 
-.check-container .label-input-text:first-child {
+.check-container .label-input:first-child {
 	flex-grow: 1;
 	margin-right: 0.3em;
 }
-.check-container .label-input-text:last-child {
+.check-container .label-input:last-child {
 	min-width: 57px;
 	flex-shrink: 100;
 }
-.check-container .label-input-text:last-child input {
+.check-container .label-input:last-child input {
 	text-align: right;
 }
 
