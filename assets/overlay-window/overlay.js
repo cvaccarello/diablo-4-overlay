@@ -2,140 +2,20 @@
 const $ = require('jquery');
 const { ipcRenderer } = require('electron');
 
+import {
+	canvasClipped,
+	cleanCanvas,
+	isPixelColored,
+	isPixelBlack,
+	colorIsInRange,
+	pointIsInBox,
+	boxIsCollidingBox
+} from '../js/helpers.js';
+
+// small text helper to replace a chunk of text with some other text
 String.prototype.replaceAt = function(index, replacement) {
 	return this.substring(0, index) + replacement + this.substring(index + replacement.length);
 };
-
-class RGBA {
-	constructor({ r = 0, g = 0, b = 0, a = 1 } = {}) {
-		this.r = r;
-		this.g = g;
-		this.b = b;
-		this.a = a;
-
-		return this;
-	}
-
-	set({ r, g, b, a }) {
-		if (r) {
-			this.r = r;
-		}
-
-		if (g) {
-			this.g = g;
-		}
-
-		if (b) {
-			this.b = b;
-		}
-
-		if (a) {
-			this.a = a;
-		}
-
-		return this;
-	}
-
-	toString() {
-		return `rgba(${this.r},${this.g},${this.b},${this.a})`;
-	}
-
-	static componentToHex(c) {
-		let hex = c.toString(16);
-		return hex.length === 1 ? '0' + hex : hex;
-	}
-
-	static rgbToHex(r, g, b) {
-		return "#" + RGBA.componentToHex(r) + RGBA.componentToHex(g) + RGBA.componentToHex(b);
-	}
-
-	static hexToRGB(hex) {
-		let result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-		return result ? {
-			r: parseInt(result[1], 16),
-			g: parseInt(result[2], 16),
-			b: parseInt(result[3], 16)
-		} : {
-			r: 0,
-			g: 0,
-			b: 0,
-		};
-	}
-
-	static RGBToHSL(r, g, b) {
-		let cMax = Math.max(r, g, b),
-			cMin = Math.min(r, g, b),
-			delta = cMax - cMin,
-			l = (cMax + cMin) / 2,
-			h = 0,
-			s = 0;
-
-		if (delta === 0) {
-			h = 0;
-		} else if (cMax === r) {
-			h = 60 * (((g - b) / delta) % 6);
-		} else if (cMax === g) {
-			h = 60 * (((b - r) / delta) + 2);
-		} else {
-			h = 60 * (((r - g) / delta) + 4);
-		}
-
-		if (delta === 0) {
-			s = 0;
-		} else {
-			s = (delta/(1-Math.abs(2*l - 1)))
-		}
-
-		return {
-			h: h,
-			s: s,
-			l: l
-		}
-	}
-
-	static HSLToRGB(h, s, l) {
-		let c = (1 - Math.abs(2*l - 1)) * s,
-			x = c * ( 1 - Math.abs((h / 60 ) % 2 - 1 )),
-			m = l - c/ 2,
-			r, g, b;
-
-		if (h < 60) {
-			r = c;
-			g = x;
-			b = 0;
-		} else if (h < 120) {
-			r = x;
-			g = c;
-			b = 0;
-		} else if (h < 180) {
-			r = 0;
-			g = c;
-			b = x;
-		} else if (h < 240) {
-			r = 0;
-			g = x;
-			b = c;
-		} else if (h < 300) {
-			r = x;
-			g = 0;
-			b = c;
-		} else {
-			r = c;
-			g = 0;
-			b = x;
-		}
-
-		// r = RGBA.normalize_rgb_value(r, m);
-		// g = RGBA.normalize_rgb_value(g, m);
-		// b = RGBA.normalize_rgb_value(b, m);
-
-		return {
-			r,
-			g,
-			b
-		};
-	}
-}
 
 
 class Overlay {
@@ -236,6 +116,7 @@ class Overlay {
 			}
 		};
 
+		// the text color for the bottom "required" level text
 		this.itemRequiredTextColor = {
 			r: {
 				min: 190,
@@ -340,10 +221,16 @@ class Overlay {
 			boxes.splice(1, 1);
 		}
 
-		if (boxes[0]) {
-			let modifiedBox = this._getModifiedOptimizedBox(boxes[0]);
+				// { y: 0, height: 200 },
+				// { y: 200, height: 60 },
+				// { y: 260, height: scanRegionBox.height - 200 - 60 },
 
-			scanRegionBoxes.push(modifiedBox);
+				// { y: 0, height: 115 },
+				// { y: 115, height: 35 },
+				// { y: 145, height: 60 },
+				// { y: 200, height: 60 },
+				// { y: 260, height: scanRegionBox.height - 115 - 35 - 60 - 60 },
+			];
 
 			this.$canvasBox1.css('translate', `${modifiedBox.x}px ${modifiedBox.y}px`);
 			this.canvasBox1.width = modifiedBox.width;
@@ -423,11 +310,11 @@ class Overlay {
 			let b = imageData.data[i + 2];
 
 			// skip pixels inside predefined boxes
-			if ((box1 && this._pointIsInBox({ x, y }, box1)) || (box2 && this._pointIsInBox({ x, y }, box2))) {
+			if ((box1 && pointIsInBox({ x, y }, box1, this.boxPadding)) || (box2 && pointIsInBox({ x, y }, box2, this.boxPadding))) {
 				continue;
 			}
 
-			if (this._colorIsInRange({ r, g, b }, this.itemLegendaryBorderColor) || this._colorIsInRange({ r, g, b }, this.itemRareBorderColor)) {
+			if (colorIsInRange({ r, g, b }, this.itemLegendaryBorderColor) || colorIsInRange({ r, g, b }, this.itemRareBorderColor)) {
 				if (!box1) {
 					box1 = this._getBox(imageData, { x, y });
 				} else if (!box2) {
@@ -435,7 +322,7 @@ class Overlay {
 				}
 
 				// ignore colliding boxes, replacing the first box with the second box if it's bigger
-				if (box1 && box2 && this._boxIsCollidingBox(box1, box2)) {
+				if (box1 && box2 && boxIsCollidingBox(box1, box2)) {
 					if (box2.width > box1.width) {
 						box1 = box2;
 					}
@@ -451,35 +338,6 @@ class Overlay {
 		}
 
 		return [ box1, box2 ];
-	}
-
-	_isPixelColored(color) {
-		return Math.abs(color.r - color.b) > 100 || Math.abs(color.r - color.g) > 100 || Math.abs(color.g - color.b) > 100;
-	}
-
-	_isPixelBlack(color) {
-		return color.r <= 1 && color.g <= 1 && color.b <= 1;
-	}
-
-	_colorIsInRange(color, range) {
-		return color.r >= range.r.min && color.r <= range.r.max && color.g >= range.g.min && color.g <= range.g.max && color.b >= range.b.min && color.b <= range.b.max;
-	}
-
-	_colorIsInRangeHSL(color, range) {
-		let hsl = RGBA.RGBToHSL(color.r, color.g, color.b);
-		return hsl.h >= range.h.min && hsl.h <= range.h.max && hsl.l >= range.l.min && hsl.l <= range.l.max;
-	}
-
-	_pointIsInBox(point, box) {
-		let extraPadding = (this.boxPadding * 1.5);
-		return point.x >= box.x - extraPadding && point.x <= box.x - extraPadding + box.width + (extraPadding * 2) && point.y >= box.y - extraPadding && point.y <= box.y - extraPadding + box.height + (extraPadding * 2);
-	}
-
-	_boxIsCollidingBox(box1, box2) {
-		return box1.x < box2.x + box2.width &&
-			box1.x + box1.width > box2.x &&
-			box1.y < box2.y + box2.height &&
-			box1.y + box1.height > box2.y;
 	}
 
 	/**
@@ -510,8 +368,8 @@ class Overlay {
 		let b2 = imageData.data[i2 + startingWidth + 2];
 
 		// double check that we have a real box before starting scan for box coordinates
-		if (!(this._colorIsInRange({ r: r1, g: g1, b: b1 }, this.itemLegendaryBorderColor) || this._colorIsInRange({ r: r1, g: g1, b: b1 }, this.itemRareBorderColor)) &&
-			!(this._colorIsInRange({ r: r2, g: g2, b: b2 }, this.itemLegendaryBorderColor) || this._colorIsInRange({ r: r2, g: g2, b: b2 }, this.itemRareBorderColor))) {
+		if (!(colorIsInRange({ r: r1, g: g1, b: b1 }, this.itemLegendaryBorderColor) || colorIsInRange({ r: r1, g: g1, b: b1 }, this.itemRareBorderColor)) &&
+			!(colorIsInRange({ r: r2, g: g2, b: b2 }, this.itemLegendaryBorderColor) || colorIsInRange({ r: r2, g: g2, b: b2 }, this.itemRareBorderColor))) {
 			return null;
 		}
 
@@ -525,7 +383,7 @@ class Overlay {
 			let g = imageData.data[i + 1];
 			let b = imageData.data[i + 2];
 
-			if (!this._colorIsInRange({ r, g, b }, this.itemLegendaryBorderColor) && !this._colorIsInRange({ r, g, b }, this.itemRareBorderColor)) {
+			if (!colorIsInRange({ r, g, b }, this.itemLegendaryBorderColor) && !colorIsInRange({ r, g, b }, this.itemRareBorderColor)) {
 				incorrectPixelColors++;
 			}
 
@@ -536,7 +394,7 @@ class Overlay {
 			}
 
 			// once the black border is detected we can stop
-			if (this._colorIsInRange({ r, g, b }, this.itemEndBorderColor)) {
+			if (colorIsInRange({ r, g, b }, this.itemEndBorderColor)) {
 				let x = (i / 4) % imageData.width;
 				box.width = x - point.x;
 				break;
@@ -557,7 +415,7 @@ class Overlay {
 			let b = imageData.data[i + 2];
 
 			// once the black border is detected we can stop
-			if (this._colorIsInRange({ r, g, b }, this.itemEndBorderColor)) {
+			if (colorIsInRange({ r, g, b }, this.itemEndBorderColor)) {
 				let y = Math.floor((i / 4) / imageData.width);
 				box.height = y - point.y;
 				break;
@@ -597,7 +455,7 @@ class Overlay {
 			let g = croppedTopImageData.data[i + 1];
 			let b = croppedTopImageData.data[i + 2];
 
-			if (this._colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || this._colorIsInRange({ r, g, b }, this.itemRequiredTextColor)) {
+			if (colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || colorIsInRange({ r, g, b }, this.itemRequiredTextColor) || isPixelColored({ r, g, b }) || isPixelBlack({ r, g, b })) {
 				let y = Math.floor((i / 4) / croppedTopImageData.width);
 				modifiedBox.y += (y + 8);
 				modifiedBox.height -= (y + 8);
@@ -616,7 +474,7 @@ class Overlay {
 			let g = croppedBottomImageData.data[i + 1];
 			let b = croppedBottomImageData.data[i + 2];
 
-			if (this._colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || this._colorIsInRange({ r, g, b }, this.itemRequiredTextColor) || this._isPixelColored({ r, g, b }) || this._isPixelBlack({ r, g, b })) {
+			if (colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || colorIsInRange({ r, g, b }, this.itemRequiredTextColor) || isPixelColored({ r, g, b }) || isPixelBlack({ r, g, b })) {
 				let y = Math.floor((i / 4) / croppedBottomImageData.width);
 				modifiedBox.height -= (modifiedBox.height - (initialBottomY + y - 8));
 				break;
@@ -635,7 +493,7 @@ class Overlay {
 			let b = imageData.data[i + 2];
 
 			// once the white equipped box is detected we can stop
-			if (this._colorIsInRange({ r, g, b }, this.itemEquippedBoxColor)) {
+			if (colorIsInRange({ r, g, b }, this.itemEquippedBoxColor)) {
 				return true;
 			}
 		}
@@ -643,30 +501,7 @@ class Overlay {
 		return false;
 	}
 
-	_cleanBox(canvas, context) {
-		let imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-
-		for (let i=0; i<imageData.data.length; i+=4) {
-			// let hsl = RGBA.RGBToHSL(imageData.data[i], imageData.data[i + 1], imageData.data[i + 2]);
-
-			// grayscale text and convert all non-text to black pixels for easier readability
-			if (!this._colorIsInRange({ r: imageData.data[i], g: imageData.data[i + 1], b: imageData.data[i + 2] }, this.itemTextColor)) {
-			// if (!(hsl.l >= this.itemTextColor.l.min && hsl.l <= this.itemTextColor.l.max)) {
-				imageData.data[i] = 0;
-				imageData.data[i + 1] = 0;
-				imageData.data[i + 2] = 0;
-			} else {
-				let grayscale = Math.round((imageData.data[i] + imageData.data[i + 1] + imageData.data[i + 2]) / 3);
-				imageData.data[i] = grayscale;
-				imageData.data[i + 1] = grayscale;
-				imageData.data[i + 2] = grayscale;
-			}
-		}
-
-		context.putImageData(imageData, 0, 0);
-	}
-
-	_checkAndRenderResults(results, scanRegionBox, outerBox) {
+	_checkAndRenderResults(results, scanRegionBox) {
 		// TODO: construct our own paragraphs as tesseract OCR is struggling a bit (this approach works really well however we lose the extra OCR details which help with the accuracy)
 		// using a positive lookahead split regex so that only the new line is ultimately removed when splitting
 		let paragraphs = results.text
