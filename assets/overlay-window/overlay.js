@@ -24,7 +24,9 @@ class Overlay {
 		this.debug = false;
 		this.boxPadding = 6;
 		this.scanRegionTopCrop = 160;
-		this.scanRegionBottomCrop = 100;
+		this.scanRegionBottomCrop = 50;
+		this.textLineSpacing = 4;
+		this.lineHeight = 25;
 		let colorBuffer = 10;
 
 		this.itemLegendaryBorderColor = {
@@ -132,6 +134,38 @@ class Overlay {
 			}
 		};
 
+		// the text color for the [ min - max ] stat text
+		this.itemMinMaxTextColor = {
+			r: {
+				min: 155 - 5,
+				max: 155 + 5,
+			},
+			g: {
+				min: 155 - 5,
+				max: 155 + 5,
+			},
+			b: {
+				min: 155 - 5,
+				max: 155 + 5
+			}
+		};
+
+		// the divider color primarily on weapon stats to separate weapon stats from the rest of the stats
+		this.itemDividerColor = {
+			r: {
+				min: 79 - 10,
+				max: 79 + 10,
+			},
+			g: {
+				min: 79 - 10,
+				max: 79 + 10,
+			},
+			b: {
+				min: 72 - 10,
+				max: 72 + 10
+			}
+		};
+
 		this.itemEquippedBoxColor = {
 			r: {
 				min: 130,
@@ -220,63 +254,64 @@ class Overlay {
 		console.time();
 		this.offScreenContext.drawImage(this.video, 0, 0, this.width, this.height);
 		const imageData = this.offScreenContext.getImageData(0, 0, this.width, this.height);
-		let boxes = this._scanForBoxes(imageData);
+		let boxes = this._scanForItemBoxes(imageData).filter((box) => {
+			// try to ignore equipped box to cut processing times in half
+			return box && !this._isEquippedItem(box, imageData);
+		});
 		let scanRegionBoxes = [];
+		let promisePieces = [];
 
-		// try to ignore equipped box to cut processing times in half
-		if (boxes[0] && this._isEquippedItem(boxes[0], imageData)) {
-			boxes.splice(0, 1);
-		} else if (boxes[1] && this._isEquippedItem(boxes[1], imageData)) {
-			boxes.splice(1, 1);
+		// hopefully at this point there's just 1 box, but sometimes there could be more than 1 if we couldn't figure out which one was equipped vs not equipped on the character
+		for (let i=0; i<boxes.length; i++) {
+			let box = boxes[i];
+			let scanRegionBox = this._getModifiedOptimizedBox(box);
+			let $canvas = this['$canvasBox' + (i + 1)];
+			let canvas = this['canvasBox' + (i + 1)];
+			let context = this['contextBox' + (i + 1)];
+
+			scanRegionBox.itemBox = box;
+			scanRegionBox.promiseStatBox = [];
+			scanRegionBox.resultStatBox = [];
+
+			// we'll eventually find bullet point "stat" boxes manually instead of through OCR for speed purposes
+			scanRegionBox.statBoxes = [];
+
+			// draw & process first 2 item boxes and that's it for now
+			if (i > 2 || !$canvas) {
+				continue;
+			}
+
+			// position and clean up canvas pre-OCR processing, removing any remaining non-text noise
+			$canvas.css('translate', `${scanRegionBox.x}px ${scanRegionBox.y}px`);
+			canvas.width = scanRegionBox.width;
+			canvas.height = scanRegionBox.height;
+			context.drawImage(this.video, scanRegionBox.x, scanRegionBox.y, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+
+			scanRegionBox.statBoxes = this._getStatBoxes(canvas, scanRegionBox);
+
+			cleanCanvas(canvas, this.itemTextColor);
+
+			// process bullet point stat boxes
+			for (let j=0; j<scanRegionBox.statBoxes.length; j++) {
+				let statBox = scanRegionBox.statBoxes[j];
+				let { canvas: canvasStat } = canvasClipped(canvas, statBox);
+
+				promisePieces.push(
+					scanRegionBox.promiseStatBox[j] = ipcRenderer.invoke('ocr-process', canvasStat.toDataURL('image/png')).then((result) => {
+						scanRegionBox.resultStatBox[j] = result;
+					})
+				);
+			}
+
+			// add box to list for post-OCR processing and clean up
+			scanRegionBoxes.push(scanRegionBox);
 		}
 
-				// { y: 0, height: 200 },
-				// { y: 200, height: 60 },
-				// { y: 260, height: scanRegionBox.height - 200 - 60 },
+		// wait for all the OCR pieces to process before continuing
+		await Promise.all(promisePieces);
 
-				// { y: 0, height: 115 },
-				// { y: 115, height: 35 },
-				// { y: 145, height: 60 },
-				// { y: 200, height: 60 },
-				// { y: 260, height: scanRegionBox.height - 115 - 35 - 60 - 60 },
-			];
 
-			this.$canvasBox1.css('translate', `${modifiedBox.x}px ${modifiedBox.y}px`);
-			this.canvasBox1.width = modifiedBox.width;
-			this.canvasBox1.height = modifiedBox.height;
-			// this.contextBox1.clearRect(0, 0, this.canvasBox1.width, this.canvasBox1.height);
-			this.contextBox1.drawImage(this.video, modifiedBox.x, modifiedBox.y, this.canvasBox1.width, this.canvasBox1.height, 0, 0, this.canvasBox1.width, this.canvasBox1.height);
-			this._cleanBox(this.canvasBox1, this.contextBox1);
-		}
-
-		if (boxes[1]) {
-			let modifiedBox = this._getModifiedOptimizedBox(boxes[1]);
-
-			scanRegionBoxes.push(modifiedBox);
-
-			this.$canvasBox2.css('translate', `${modifiedBox.x}px ${modifiedBox.y}px`);
-			this.canvasBox2.width = modifiedBox.width;
-			this.canvasBox2.height = modifiedBox.height;
-			// this.contextBox2.clearRect(0, 0, this.canvasBox2.width, this.canvasBox2.height);
-			this.contextBox2.drawImage(this.video, modifiedBox.x, modifiedBox.y, this.canvasBox2.width, this.canvasBox2.height, 0, 0, this.canvasBox2.width, this.canvasBox2.height);
-			this._cleanBox(this.canvasBox2, this.contextBox2);
-		}
-
-		let promises = [];
-
-		if (boxes[0]) {
-			// process OCR on the node.js backend for speed purposes
-			const img1 = this.canvasBox1.toDataURL('image/png');
-			promises.push(ipcRenderer.invoke('ocr-process', img1));
-		}
-
-		if (boxes[1]) {
-			// process OCR on the node.js backend for speed purposes
-			const img2 = this.canvasBox2.toDataURL('image/png');
-			promises.push(await ipcRenderer.invoke('ocr-process', img2));
-		}
-
-		const [ results1, results2 ] = await Promise.all(promises);
+		///*********** BEGIN ACTUAL RENDERING ONCE PROCESSING FINISHED ***********///
 
 		this.context.clearRect(0, 0, this.width, this.height);
 
@@ -284,12 +319,29 @@ class Overlay {
 			this.context.drawImage(this.video, 0, 0, this.width, this.height);
 		}
 
-		if (boxes[0]) {
-			this._checkAndRenderResults(results1, scanRegionBoxes[0], boxes[0]);
-		}
+		for (let i=0; i<scanRegionBoxes.length; i++) {
+			let scanRegionBox = scanRegionBoxes[i];
+			let itemBox = scanRegionBox.itemBox;
 
-		if (boxes[1]) {
-			this._checkAndRenderResults(results2, scanRegionBoxes[1], boxes[1]);
+			for (let j=0; j<scanRegionBox.statBoxes.length; j++) {
+				let statBox = scanRegionBox.statBoxes[j];
+				let result = scanRegionBox.resultStatBox[j];
+
+				this._checkAndRenderResults(result, { x: scanRegionBox.x + statBox.x, y: scanRegionBox.y + statBox.y });
+			}
+
+			if (this.debug) {
+				this.context.strokeStyle = 'yellow';
+				this.context.lineWidth = 2;
+				this.context.beginPath();
+				this.context.rect(itemBox.x - this.boxPadding, itemBox.y - this.boxPadding, itemBox.width + (this.boxPadding * 2), itemBox.height + (this.boxPadding * 2));
+				this.context.stroke();
+				this.context.strokeStyle = 'blue';
+				this.context.lineWidth = 2;
+				this.context.beginPath();
+				this.context.rect(scanRegionBox.x, scanRegionBox.y, scanRegionBox.width, scanRegionBox.height);
+				this.context.stroke();
+			}
 		}
 
 		this.context.font = 'bold 12px serif';
@@ -309,7 +361,7 @@ class Overlay {
 	 * @param imageData
 	 * @private
 	 */
-	_scanForBoxes(imageData) {
+	_scanForItemBoxes(imageData) {
 		let box1 = null;
 		let box2 = null;
 		// let ignoreBoxes = [];
@@ -497,6 +549,192 @@ class Overlay {
 		return modifiedBox;
 	}
 
+	_getStatBoxes(canvas, scanRegionBox) {
+		let context = canvas.getContext('2d');
+		let imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+		let statBoxes = [];
+		let startY = 0;
+		let endY = 0;
+		let dividerPixelsFound = 0;
+		// how many units of RGBA pixel data to jump in order to move up 1 text-line
+		let textLineHeightJump = imageData.width * 4 * Math.round(this.lineHeight - (this.textLineSpacing / 2));
+
+		// start at the last pixel and work our way up
+		for (let i=imageData.data.length - 4; i>=0; i-=4) {
+			let r = imageData.data[i];
+			let g = imageData.data[i + 1];
+			let b = imageData.data[i + 2];
+
+			if (statBoxes.length >= 3 && colorIsInRange({ r, g, b }, this.itemDividerColor)) {
+				dividerPixelsFound++;
+
+				// when the divider line is detected, we can complete 1 more stat box and stop trying to find more
+				if (dividerPixelsFound > 30) {
+					let y = Math.floor((i / 4) / imageData.width);
+
+					startY = y;
+
+					statBoxes.push({
+						x: 30,
+						y: y + this.textLineSpacing + 4,
+						width: canvas.width - 30,
+						height: endY - startY - Math.round(this.textLineSpacing / 2) + 2
+					});
+
+					if (this.debug) {
+						this.context.strokeStyle = 'deeppink';
+						this.context.lineWidth = 1;
+						this.context.beginPath();
+						this.context.rect(scanRegionBox.x + statBoxes[statBoxes.length - 1].x + 2, scanRegionBox.y + statBoxes[statBoxes.length - 1].y, statBoxes[statBoxes.length - 1].width - 2 - 2, statBoxes[statBoxes.length - 1].height);
+						this.context.stroke();
+					}
+
+					break;
+				}
+			} else {
+				dividerPixelsFound = 0;
+			}
+
+			// once the min-max text is detected we can jump up roughly 1 text-line of pixels
+			if (colorIsInRange({ r, g, b }, this.itemMinMaxTextColor)) {
+				let y = Math.floor((i / 4) / imageData.width);
+
+				// figure out the end Y positions of stat box
+				if (!endY) {
+					endY = y;
+
+					// since this text-line contains the pixel we're looking for, we can immediately jump up a full text-line next loop iteration
+					i -= textLineHeightJump;
+
+					if (this.debug) {
+						let x1 = (i / 4) % imageData.width;
+						let y1 = Math.floor((i / 4) / imageData.width);
+						this.context.strokeStyle = 'green';
+						this.context.lineWidth = 2;
+						this.context.beginPath();
+						this.context.rect(scanRegionBox.x + x1, scanRegionBox.y + y1, 5, 2);
+						this.context.stroke();
+					}
+
+					continue;
+				}
+
+				// we've reached a potentially new stat-box position, however it may be a false positive due to word wrapping of min-max text, and we need to ignore that scenario
+				// start by scanning from the left to the right, looking for the proper min-max color, then go up 1 line and do the same from the right to the left, this indicates the text is wrapping
+				// TODO: could maybe get a little faster by not looking for the left-to-right case b/c we likely already have it using the current X position
+				let foundLeftToRight = this._scanForTextWrapColor(imageData, y + Math.round(this.lineHeight / 2) + Math.round(this.textLineSpacing / 2), 'left-to-right', scanRegionBox);
+				let foundRightToLeft = this._scanForTextWrapColor(imageData, y - Math.round(this.lineHeight / 2) + Math.round(this.textLineSpacing / 2), 'right-to-left', scanRegionBox);
+
+				if (foundLeftToRight && foundRightToLeft) {
+					// false positive, text is wrapping, need to continue to the next text-line
+					i -= textLineHeightJump;
+
+					if (this.debug) {
+						let x1 = (i / 4) % imageData.width;
+						let y1 = Math.floor((i / 4) / imageData.width);
+						this.context.strokeStyle = 'green';
+						this.context.lineWidth = 2;
+						this.context.beginPath();
+						this.context.rect(scanRegionBox.x + x1, scanRegionBox.y + y1, 5, 2);
+						this.context.stroke();
+					}
+
+					continue;
+				}
+
+				// figure out the start Y positions of stat box
+				startY = y;
+
+				// offset downwards a bit b/c we're always going to be finding the bottom of every stat box
+				statBoxes.push({
+					x: 30,
+					y: startY + this.textLineSpacing + 2,
+					width: canvas.width - 30,
+					height: endY - startY - Math.round(this.textLineSpacing / 2) + 2
+				});
+
+				if (this.debug) {
+					this.context.strokeStyle = 'deeppink';
+					this.context.lineWidth = 1;
+					this.context.beginPath();
+					this.context.rect(scanRegionBox.x + statBoxes[statBoxes.length - 1].x + 2, scanRegionBox.y + statBoxes[statBoxes.length - 1].y, statBoxes[statBoxes.length - 1].width - 2 - 2, statBoxes[statBoxes.length - 1].height);
+					this.context.stroke();
+				}
+
+				// reset for next box
+				endY = 0;
+				startY = 0;
+			}
+
+			// finish off boxes for top-most one, where there was nothing above it, so we couldn't crop it with the normal technique above
+			if (i >= 0 && i <= imageData.width * 4 && endY !== 0) {
+				statBoxes.push({
+					x: 30,
+					y: 0,
+					width: canvas.width - 30,
+					height: endY + Math.round(this.textLineSpacing / 2) + 2
+				});
+
+				if (this.debug) {
+					this.context.strokeStyle = 'deeppink';
+					this.context.lineWidth = 1;
+					this.context.beginPath();
+					this.context.rect(scanRegionBox.x + statBoxes[statBoxes.length - 1].x + 2, scanRegionBox.y + statBoxes[statBoxes.length - 1].y, statBoxes[statBoxes.length - 1].width - 2 - 2, statBoxes[statBoxes.length - 1].height);
+					this.context.stroke();
+				}
+
+				break;
+			}
+		}
+
+		return statBoxes.reverse();
+	}
+
+	_scanForTextWrapColor(imageData, y, direction, scanRegionBox) {
+		if (direction === 'left-to-right') {
+			for (let i=imageData.width * 4 * y; i<=(imageData.width * 4 * y) + Math.round(imageData.width * 4 / 3); i+=4) {
+				let r = imageData.data[i];
+				let g = imageData.data[i + 1];
+				let b = imageData.data[i + 2];
+
+				if (colorIsInRange({ r, g, b }, this.itemMinMaxTextColor)) {
+					if (this.debug) {
+						let x1 = (i / 4) % imageData.width;
+						let y1 = Math.floor((i / 4) / imageData.width);
+						this.context.strokeStyle = 'purple';
+						this.context.lineWidth = 2;
+						this.context.beginPath();
+						this.context.arc(scanRegionBox.x + x1, scanRegionBox.y + y1, 3, 0, 2 * Math.PI);
+						this.context.stroke();
+					}
+					return true;
+				}
+			}
+		} else if (direction === 'right-to-left') {
+			for (let i=(imageData.width * 4 * y) + (imageData.width * 4); i>=(imageData.width * 4 * y) + Math.round(imageData.width * 4) - Math.round(imageData.width * 4 / 3); i-=4) {
+				let r = imageData.data[i];
+				let g = imageData.data[i + 1];
+				let b = imageData.data[i + 2];
+
+				if (colorIsInRange({ r, g, b }, this.itemMinMaxTextColor)) {
+					if (this.debug) {
+						let x1 = (i / 4) % imageData.width;
+						let y1 = Math.floor((i / 4) / imageData.width);
+						this.context.strokeStyle = 'pink';
+						this.context.lineWidth = 2;
+						this.context.beginPath();
+						this.context.arc(scanRegionBox.x + x1, scanRegionBox.y + y1, 3, 0, 2 * Math.PI);
+						this.context.stroke();
+					}
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	// TODO: if an item sits nicely underneath the "STASH" tab this can throw a false positive and think it's looking at an equipped item
 	_isEquippedItem(box, imageData) {
 		// start X% over on the X axis and look upwards, at most 100 pixels, for the "EQUIPPED" box
 		let initialY = ((box.x + Math.round(box.width * 0.25)) + (box.y * imageData.width)) * 4;
@@ -521,11 +759,13 @@ class Overlay {
 			// remove extra new lines, easier to assume everything is on 1 new line rather than multiple
 			.replace(/\n{2,}/g, '\n')
 			// find new lines where bullet points exist (but don't remove character associated with bullet point yet)
+			// TODO: this is a bit redundant now that the bullet points and stats are being manually discovered and stripped into single pieces
 			.split(/\n(?=[©@%+o0£]?\s)|\n(?=[O0])/i)
 			// map to a nice object with some placeholders that get filled out later
 			.map((paragraph) => {
 				return {
 					text: paragraph.replace('\n', ' ').trim(),
+					textCleaned: '',
 					bbox: { x0: 10000, y0: 10000, x1: 0, y1: 0 },
 					lines: []
 				};
@@ -537,6 +777,17 @@ class Overlay {
 				return p.text.indexOf(line.text.replace('\n', ' ').trim()) >= 0;
 			});
 
+			// construct clean "text" from confident words
+			for (let word of line.words) {
+				// unfortunately the confidence on a line isn't so reliable for some reason, and we're really just trying to remove 1 letter noise words
+				let manualWordConfidence = word.symbols.reduce((previousValue, currentValue) => previousValue + currentValue.confidence, 0) / word.symbols.length;
+
+				if (manualWordConfidence > 40) {
+					paragraph.textCleaned += word.text + ' ';
+				}
+			}
+
+			paragraph.textCleaned.trim();
 			paragraph.bbox.x0 = Math.min(paragraph.bbox.x0, line.bbox.x0);
 			paragraph.bbox.y0 = Math.min(paragraph.bbox.y0, line.bbox.y0);
 			paragraph.bbox.x1 = Math.max(paragraph.bbox.x1, line.bbox.x1);
@@ -547,28 +798,33 @@ class Overlay {
 		// clean up the OCR results
 		for (let paragraph of paragraphs) {
 			// start by combining lines into 1 line and removing the single character of junk that ultimately is just a bullet character
-			let text = paragraph.text.replace(/\n/gi, ' ').replace(/^.+?\s/gi, '');
+			let text = paragraph.textCleaned.replace(/\n/gi, ' ').replace(/^.\s/gi, '');
 			let matchString = this.matchData.map((data) => data.name).join('|');
-			let textRegex = new RegExp(`.*?(\\d+\.?\\d+?).*?\\s.*?(${matchString}).*?\\[?(\\d+\.?\\d?)\\s?-\\s?(\\d+\.?\\d?)]?(%?)`, 'i');
-			let preMatch = text.match(/([\[|{(1l!\\/:;]\d+\.\d\s?-\s?\d+\.\d[\]|)}1l!\\/:;])%?/i);
+			let textRegex = new RegExp(`.*?(\\d+\\.?\\d?)[%]?\\s(.*?)\\s[+]?\\[?(\\d+\\.?\\d?)\\s?-?\\s?(\\d+\\.?\\d?)?\\]?`, 'i');
 
-			// sometimes the first and last character between min and max (i.e., [min - max] can be difficult to tell the difference between [] and the number 1 (or other characters)
-			// this will try to force the characters
-			if (preMatch) {
-				let index = text.indexOf(preMatch[1]);
-				text = text.replaceAt(index, '[');
-				text = text.replaceAt(index + preMatch[1].length - 1, ']');
+			let [, value, statName, min, max ] = text.match(textRegex) || [];
+			let matchedStatName = statName?.match(new RegExp(`${matchString}`, 'i'))?.[0];
+
+			// cast all the number values as actual numbers, so we can do proper math and checks
+			value = +value || 0;
+			min = +min || 0;
+			// in the case of only 1 value in brackets [ min/max ], we'll assume min can also be max if no max is present
+			max = +max || +min || 0;
+
+			// if "value" is larger than max, likely OCR misread a bracket as a number
+			if (value > max) {
+				console.warn(`There may have been an OCR issue when reading "${value}" which is not between [ "${min}" - "${max}" ].  First digit got stripped in the hopes that it was just a bracket [] misread.`);
+				value = parseFloat(value.toString().slice(1));
 			}
 
-			let [ all, value, match, min, max, percentage ] = text.match(textRegex) || [];
-			console.log(text);
+			// leaving this here b/c it helps quickly debugger squirrelly OCR reads
+			console.log((matchedStatName) ? '⭐' : '🚫', value, statName, min, max, `"${text}"`);
 
-			if (match) {
-				console.log('---', value, match, min, max, percentage);
+			if (matchedStatName) {
 				let percentageToMax = 100 * (value - min) / (max - min);
-				let matchPercentage = this.matchData.find((item) => {
-					return item.name.toLowerCase() === match.toLowerCase();
-				}).percentage;
+				let matchPercentage = this.matchData.find((statItem) => {
+					return statItem.name.toLowerCase() === matchedStatName.toLowerCase();
+				})?.percentage;
 
 				if (percentageToMax >= matchPercentage) {
 					this.context.strokeStyle = 'red';
@@ -583,19 +839,6 @@ class Overlay {
 					this.context.stroke();
 				}
 			}
-		}
-
-		if (this.debug) {
-			this.context.strokeStyle = 'yellow';
-			this.context.lineWidth = 2;
-			this.context.beginPath();
-			this.context.rect(outerBox.x - this.boxPadding, outerBox.y - this.boxPadding, outerBox.width + (this.boxPadding * 2), outerBox.height + (this.boxPadding * 2));
-			this.context.stroke();
-			this.context.strokeStyle = 'blue';
-			this.context.lineWidth = 2;
-			this.context.beginPath();
-			this.context.rect(scanRegionBox.x, scanRegionBox.y, scanRegionBox.width, scanRegionBox.height);
-			this.context.stroke();
 		}
 	}
 }
