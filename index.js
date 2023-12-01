@@ -90,7 +90,7 @@ class ElectronOverlay {
 			return debug;
 		});
 
-		ipcMain.handle('get-input-source', async (event) => {
+		ipcMain.handle('get-input-source', async () => {
 			return this.inputSource;
 		});
 
@@ -103,7 +103,7 @@ class ElectronOverlay {
 			return data;
 		});
 
-		ipcMain.on('stop-scanning', async (event) => {
+		ipcMain.on('stop-scanning', async () => {
 			this.overlayWindow?.close();
 		});
 
@@ -161,7 +161,7 @@ class ElectronOverlay {
 
 		this.controlWindow.on('closed', () => {
 			this.controlWindow = null;
-			this.overlayWindow.close();
+			this.overlayWindow?.close();
 		});
 
 		await this.controlWindow.loadURL(path.join('file://', __dirname, 'assets/control-window/index.html'));
@@ -185,7 +185,7 @@ class ElectronOverlay {
 			kiosk: !debug,
 			resizable: debug,
 			movable: debug,
-			frame: false,
+			frame: debug,
 			webPreferences: {
 				backgroundThrottling: false,
 				nodeIntegration: true,
