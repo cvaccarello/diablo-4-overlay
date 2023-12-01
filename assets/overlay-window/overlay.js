@@ -529,12 +529,15 @@ class Overlay {
 			width: box.width,
 			height: box.height - this.scanRegionTopCrop - this.scanRegionBottomCrop,
 		};
+		let initialTopY = Math.round(modifiedBox.height * 0.5);
+		let initialBottomY = Math.round(modifiedBox.height * 0.5);
+		let croppedTopImageData = this.offScreenContext.getImageData(modifiedBox.x, modifiedBox.y, modifiedBox.width, modifiedBox.height - initialTopY);
+		let croppedBottomImageData = this.offScreenContext.getImageData(modifiedBox.x, modifiedBox.y + initialBottomY, modifiedBox.width, modifiedBox.height - initialBottomY);
+		let addToTop = 0;
+		let subtractFromBottom = 0;
 
 		// try to shrink box further by checking for white "damage" or "armor" text color, which appear at the top of item boxes
 		// start half-way down the box, b/c we know what we're looking for is towards the top, and we want to get the bottom-most location
-		let initialTopY = Math.round(modifiedBox.height * 0.4);
-		let croppedTopImageData = this.offScreenContext.getImageData(modifiedBox.x, modifiedBox.y, modifiedBox.width, modifiedBox.height - initialTopY);
-
 		// jump every X pixels, we shouldn't need extreme precision here, just any general idea of where the crop should be
 		for (let i=croppedTopImageData.data.length; i>0; i-=(4 * 5)) {
 			let r = croppedTopImageData.data[i];
@@ -543,17 +546,25 @@ class Overlay {
 
 			if (colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || colorIsInRange({ r, g, b }, this.itemRequiredTextColor) || isPixelColored({ r, g, b }) || isPixelBlack({ r, g, b })) {
 				let y = Math.floor((i / 4) / croppedTopImageData.width);
-				modifiedBox.y += (y + 8);
-				modifiedBox.height -= (y + 8);
+
+				addToTop = y + (this.textLineSpacing * 2);
+
+				if (this.debug) {
+					let x1 = (i / 4) % croppedBottomImageData.width;
+					let y1 = Math.floor((i / 4) / croppedBottomImageData.width);
+					this.context.strokeStyle = 'blue';
+					this.context.lineWidth = 2;
+					this.context.beginPath();
+					this.context.arc(modifiedBox.x + x1, modifiedBox.y + y1, 3, 0, 2 * Math.PI);
+					this.context.stroke();
+				}
+
 				break;
 			}
 		}
 
 		// try to shrink box further by checking for the orange (legendary) or white (level required) text color, which appear at the bottom of item boxes
 		// start half-way down the box, b/c we know what we're looking for is towards the bottom, and we want to get the top-most location
-		let initialBottomY = Math.round(modifiedBox.height * 0.4);
-		let croppedBottomImageData = this.offScreenContext.getImageData(modifiedBox.x, modifiedBox.y + initialBottomY, modifiedBox.width, modifiedBox.height - initialBottomY);
-
 		// jump every X pixels, we shouldn't need extreme precision here, just any general idea of where the crop should be
 		for (let i=0; i<croppedBottomImageData.data.length; i+=(4 * 5)) {
 			let r = croppedBottomImageData.data[i];
@@ -562,10 +573,26 @@ class Overlay {
 
 			if (colorIsInRange({ r, g, b }, this.itemLegendaryTextColor) || colorIsInRange({ r, g, b }, this.itemRequiredTextColor) || isPixelColored({ r, g, b }) || isPixelBlack({ r, g, b })) {
 				let y = Math.floor((i / 4) / croppedBottomImageData.width);
-				modifiedBox.height -= (modifiedBox.height - (initialBottomY + y - 8));
+
+				subtractFromBottom = modifiedBox.height - (initialBottomY + y) + this.textLineSpacing;
+
+				if (this.debug) {
+					let x1 = (i / 4) % croppedBottomImageData.width;
+					let y1 = Math.floor((i / 4) / croppedBottomImageData.width);
+					this.context.strokeStyle = 'blue';
+					this.context.lineWidth = 2;
+					this.context.beginPath();
+					this.context.arc(modifiedBox.x + x1, modifiedBox.y + initialBottomY + y1, 3, 0, 2 * Math.PI);
+					this.context.stroke();
+				}
+
 				break;
 			}
 		}
+
+		modifiedBox.y += addToTop;
+		modifiedBox.height -= addToTop;
+		modifiedBox.height -= subtractFromBottom;
 
 		return modifiedBox;
 	}
