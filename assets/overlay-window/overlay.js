@@ -498,6 +498,27 @@ class Overlay {
 		box.width -= (this.boxPadding * 2);
 		box.height -= (this.boxPadding * 2);
 
+
+		// one last double check to make sure there's some black pixels nearby to the left, indicating for sure that this is a item box (there was still a lot of false positives happening)
+		let initialBoxX = (point.x + (point.y * imageData.width)) * 4;
+		let correctPreBlackBorderPixelColors = 0;
+
+		// double check that X of the previous Y pixels are black, indicating a proper item box and hopefully remove some false positives
+		for (let i=initialBoxX; i>initialBoxX - (20 * 4) ; i-=4) {
+			let r = imageData.data[i];
+			let g = imageData.data[i + 1];
+			let b = imageData.data[i + 2];
+
+			if (colorIsInRange({ r, g, b }, this.itemEndBorderColor)) {
+				correctPreBlackBorderPixelColors++;
+			}
+		}
+
+		// if there aren't at least X black pixels before the starting position, then this is a false positive
+		if (correctPreBlackBorderPixelColors < 4) {
+			return null;
+		}
+
 		return box;
 	}
 
