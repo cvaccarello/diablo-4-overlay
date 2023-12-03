@@ -803,89 +803,101 @@ class Overlay {
 	_checkAndRenderResults(results, scanRegionBox) {
 		// TODO: construct our own paragraphs as tesseract OCR is struggling a bit (this approach works really well however we lose the extra OCR details which help with the accuracy)
 		// using a positive lookahead split regex so that only the new line is ultimately removed when splitting
-		let paragraphs = results.text
-			// remove extra new lines, easier to assume everything is on 1 new line rather than multiple
-			.replace(/\n{2,}/g, '\n')
-			// find new lines where bullet points exist (but don't remove character associated with bullet point yet)
-			// TODO: this is a bit redundant now that the bullet points and stats are being manually discovered and stripped into single pieces
-			.split(/\n(?=[©@%+o0£]?\s)|\n(?=[O0])/i)
-			// map to a nice object with some placeholders that get filled out later
-			.map((paragraph) => {
-				return {
-					text: paragraph.replace('\n', ' ').trim(),
-					textCleaned: '',
-					bbox: { x0: 10000, y0: 10000, x1: 0, y1: 0 },
-					lines: []
-				};
-			});
+		let textBlock = {
+			text: results.text.replace('\n', ' ').trim(),
+			textCleaned: '',
+			bbox: { x0: 10000, y0: 10000, x1: 0, y1: 0 },
+			lines: []
+		};
 
-		// figure out which OCR line goes with which paragraph
 		for (let line of results.lines) {
-			let paragraph = paragraphs.find((p) => {
-				return p.text.indexOf(line.text.replace('\n', ' ').trim()) >= 0;
-			});
-
 			// construct clean "text" from confident words
 			for (let word of line.words) {
 				// unfortunately the confidence on a line isn't so reliable for some reason, and we're really just trying to remove 1 letter noise words
 				let manualWordConfidence = word.symbols.reduce((previousValue, currentValue) => previousValue + currentValue.confidence, 0) / word.symbols.length;
 
 				if (manualWordConfidence > 40) {
-					paragraph.textCleaned += word.text + ' ';
+					textBlock.textCleaned += word.text + ' ';
 				}
 			}
 
-			paragraph.textCleaned.trim();
-			paragraph.bbox.x0 = Math.min(paragraph.bbox.x0, line.bbox.x0);
-			paragraph.bbox.y0 = Math.min(paragraph.bbox.y0, line.bbox.y0);
-			paragraph.bbox.x1 = Math.max(paragraph.bbox.x1, line.bbox.x1);
-			paragraph.bbox.y1 = Math.max(paragraph.bbox.y1, line.bbox.y1);
-			paragraph.lines.push(line);
+			textBlock.textCleaned = textBlock.textCleaned.trim();
+			textBlock.bbox.x0 = Math.min(textBlock.bbox.x0, line.bbox.x0);
+			textBlock.bbox.y0 = Math.min(textBlock.bbox.y0, line.bbox.y0);
+			textBlock.bbox.x1 = Math.max(textBlock.bbox.x1, line.bbox.x1);
+			textBlock.bbox.y1 = Math.max(textBlock.bbox.y1, line.bbox.y1);
+			textBlock.lines.push(line);
 		}
 
 		// clean up the OCR results
-		for (let paragraph of paragraphs) {
-			// start by combining lines into 1 line and removing the single character of junk that ultimately is just a bullet character
-			let text = paragraph.textCleaned.replace(/\n/gi, ' ').replace(/^.\s/gi, '');
-			let matchString = this.matchData.map((data) => data.name).join('|');
-			let textRegex = new RegExp(`.*?(\\d+\\.?\\d?)[%]?\\s(.*?)\\s[+]?\\[?(\\d+\\.?\\d?)\\s?-?\\s?(\\d+\\.?\\d?)?\\]?`, 'i');
+		// start by combining lines into 1 line and removing the single character of junk that ultimately is just a bullet character
+		let text = textBlock.textCleaned.replace(/\n/gi, ' ').replace(/^.\s/gi, '');
+		let matchString = this.matchData.map((data) => data.name).join('|');
+		let textRegex = new RegExp(`.*?(\\d+\\.?\\d?)[%]?\\s(.*?)\\s[+]?\\[?(\\d+\\.?\\d?)\\s?-?\\s?(\\d+\\.?\\d?)?\\]?`, 'i');
 
-			let [, value, statName, min, max ] = text.match(textRegex) || [];
-			let matchedStatName = statName?.match(new RegExp(`${matchString}`, 'i'))?.[0];
+		let [, value, statName, min, max ] = text.match(textRegex) || [];
 
-			// cast all the number values as actual numbers, so we can do proper math and checks
-			value = +value || 0;
-			min = +min || 0;
-			// in the case of only 1 value in brackets [ min/max ], we'll assume min can also be max if no max is present
-			max = +max || +min || 0;
+		// cast all the number values as actual numbers, so we can do proper math and checks
+		value = +value || 0;
+		min = +min || 0;
+		max = +max || 0;
 
-			// if "value" is larger than max, likely OCR misread a bracket as a number
-			if (value > max) {
-				console.warn(`There may have been an OCR issue when reading "${value}" which is not between [ "${min}" - "${max}" ].  First digit got stripped in the hopes that it was just a bracket [] misread.`);
-				value = parseFloat(value.toString().slice(1));
+		// if "value" is larger than max, likely OCR misread a bracket as a number
+		if (value > max) {
+			// try to get values another way (sometimes there's a few variations on stat text)
+			let numbers = text.match(/\d+\.?\d?/g);
+
+			// check first number (value) with last 2 numbers (min & max)
+			// else check first number (value) with 2nd to last 2 numbers (min, max, last value that doesn't matter)
+			if (+numbers[0] > +numbers[numbers.length - 2] && +numbers[0] < +numbers[numbers.length - 1]) {
+				value = +numbers[0];
+				min = +numbers[numbers.length - 2];
+				max = +numbers[numbers.length - 1];
+				// strip out numbers and symbols, best we can do with some of these weird types of stats
+				statName = text.replace(/\d+\.?\d?/g, '').replace(/[^a-zA-Z\s]/g, '').trim();
+			} else if (+numbers[0] > +numbers[numbers.length - 3] && +numbers[0] < +numbers[numbers.length - 2]) {
+				value = +numbers[0];
+				min = +numbers[numbers.length - 3];
+				max = +numbers[numbers.length - 2];
+				// strip out numbers and symbols, best we can do with some of these weird types of stats
+				statName = text.replace(/\d+\.?\d?/g, '').replace(/[^a-zA-Z\s]/g, '').trim();
 			}
+		}
 
-			// leaving this here b/c it helps quickly debugger squirrelly OCR reads
-			console.log((matchedStatName) ? '⭐' : '🚫', value, statName, min, max, `"${text}"`);
+		// in the case of only 1 value in brackets [ min/max ], we'll assume min can also be max if no max is present
+		if (!max) {
+			max = min;
+		}
 
-			if (matchedStatName) {
-				let percentageToMax = 100 * (value - min) / (max - min);
-				let matchPercentage = this.matchData.find((statItem) => {
-					return statItem.name.toLowerCase() === matchedStatName.toLowerCase();
-				})?.percentage;
+		// if after all the above checks to try and get a match, we still don't have something valid, then the issue likely is just a misread
+		if (value > max) {
+			console.warn(`There may have been an OCR issue when reading "${value}" which is not between [ "${min}" - "${max}" ].  First digit got stripped in the hopes that it was just a bracket [] misread.`);
+			value = parseFloat(value.toString().slice(1));
+		}
 
-				if (percentageToMax >= matchPercentage) {
-					this.context.strokeStyle = 'red';
-					this.context.lineWidth = 2;
-					this.context.beginPath();
-					this.context.rect(
-						scanRegionBox.x + paragraph.bbox.x0 - 5,
-						scanRegionBox.y + paragraph.bbox.y0 - 5,
-						paragraph.bbox.x1 - paragraph.bbox.x0 + 5 + 2,
-						paragraph.bbox.y1 - paragraph.bbox.y0 + 5 + 2
-					);
-					this.context.stroke();
-				}
+		// try to match the state name with whatever was entered by the user
+		let matchedStatName = statName?.match(new RegExp(`${matchString}`, 'i'))?.[0];
+
+		// leaving this here b/c it helps quickly debugger squirrelly OCR reads
+		console.log((matchedStatName) ? '⭐' : '🚫', value, statName, min, max, `"${text}"`);
+
+		if (matchedStatName) {
+			let percentageToMax = 100 * (value - min) / (max - min);
+			let matchPercentage = this.matchData.find((statItem) => {
+				return statItem.name.toLowerCase() === matchedStatName.toLowerCase();
+			})?.percentage;
+
+			if (percentageToMax >= matchPercentage) {
+				this.context.strokeStyle = 'red';
+				this.context.lineWidth = 2;
+				this.context.beginPath();
+				this.context.rect(
+					scanRegionBox.x + textBlock.bbox.x0 - 5,
+					scanRegionBox.y + textBlock.bbox.y0 - 5,
+					textBlock.bbox.x1 - textBlock.bbox.x0 + 5 + 2,
+					textBlock.bbox.y1 - textBlock.bbox.y0 + 5 + 2
+				);
+				this.context.stroke();
 			}
 		}
 	}
