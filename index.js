@@ -18,7 +18,7 @@ class ElectronOverlay {
 		this.controlWindow = null;
 		this.overlayWindow = null;
 		this.matchDataFile = path.join(__dirname, 'data/data.json');
-		this.inputSource = null;
+		this.gameInputSource = null;
 		this.matchData = [];
 
 		this.initialize().catch(console.error);
@@ -37,7 +37,9 @@ class ElectronOverlay {
 	}
 
 	activate() {
+		// prompt user which input source they'd like to use,
 		ipcMain.handle('query-input-source', async (event) => {
+			let gameSource;
 			let inputSources = await desktopCapturer.getSources({
 				types: ['window', 'screen'],
 				fetchWindowIcons: true,
@@ -46,44 +48,53 @@ class ElectronOverlay {
 			// in production, we can clean up the results a bit with some assumptions on what they're looking for (video game title)
 			if (!debug) {
 				inputSources = inputSources.filter((source) => {
-					// keep all "screens" and anything with the word "diablo" in it
-					return source.id.search('screen') >= 0 || source.name.match(/diablo/gi);
+					return source.name.match(/^Diablo IV/g);
 				});
+
+				if (!inputSources.length) {
+					inputSources = inputSources.filter((source) => {
+						return source.id.search('screen') >= 0;
+					});
+				}
 			}
 
-			let inputSource = await new Promise((resolve) => {
-				const videoOptionsMenu = Menu.buildFromTemplate(
-					inputSources.map((source) => {
-						return new MenuItem({
-							label: source.name,
-							icon: source.appIcon?.resize({
-								width: 20
-							}) || source.thumbnail?.resize({
-								width: 20
-							}),
-							click: () => {
-								resolve(source);
-							}
-						});
-					})
-				);
+			if (inputSources.length === 1) {
+				gameSource = inputSources[0];
+			} else {
+				gameSource = await new Promise((resolve) => {
+					const videoOptionsMenu = Menu.buildFromTemplate(
+						inputSources.map((source) => {
+							return new MenuItem({
+								label: source.name,
+								icon: source.appIcon?.resize({
+									width: 20
+								}) || source.thumbnail?.resize({
+									width: 20
+								}),
+								click: () => {
+									resolve(source);
+								}
+							});
+						})
+					);
 
-				videoOptionsMenu.popup({
-					window: BrowserWindow.fromWebContents(event.sender),
-					callback: () => {
-						resolve();
-					},
+					videoOptionsMenu.popup({
+						window: BrowserWindow.fromWebContents(event.sender),
+						callback: () => {
+							resolve();
+						},
+					});
 				});
-			});
 
-			if (!inputSource) {
-				return;
+				if (!gameSource) {
+					return;
+				}
 			}
 
-			this.inputSource = inputSource;
+			this.gameInputSource = gameSource;
 			this.createOverlayWindow().catch(console.error);
 
-			return inputSource;
+			return gameSource;
 		});
 
 		ipcMain.handle('get-debug-flag', () => {
@@ -91,7 +102,7 @@ class ElectronOverlay {
 		});
 
 		ipcMain.handle('get-input-source', async () => {
-			return this.inputSource;
+			return this.gameInputSource;
 		});
 
 		ipcMain.handle('get-update-data', () => {
@@ -103,7 +114,7 @@ class ElectronOverlay {
 			return data;
 		});
 
-		ipcMain.on('stop-scanning', async () => {
+		ipcMain.on('stop-scanning', () => {
 			this.overlayWindow?.close();
 		});
 
@@ -179,7 +190,6 @@ class ElectronOverlay {
 			height: 1000,
 			transparent: true,
 			skipTaskbar: !debug,
-			closable: debug,
 			useContentSize: !debug,
 			alwaysOnTop: !debug,
 			kiosk: !debug,
@@ -212,10 +222,11 @@ class ElectronOverlay {
 	}
 }
 
-app.on('window-all-closed', function () {
-	app.quit();
-});
-
 app.on('ready', () => {
-	new ElectronOverlay();
+	let overlay = new ElectronOverlay();
+
+	app.on('window-all-closed', async function () {
+		await overlay.scheduler.terminate();
+		app.quit();
+	});
 });
